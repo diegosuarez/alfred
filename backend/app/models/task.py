@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, inspect
 from sqlalchemy.orm import relationship
 from app.database import Base
 from app.core.time import utcnow
@@ -25,6 +25,8 @@ class Task(Base):
 
     @property
     def total_focus_time(self) -> int:
-        if not self.focus_sessions:
+        # Avoid triggering a lazy load in async contexts: only sum if
+        # the relationship was eagerly loaded by the caller.
+        if "focus_sessions" in inspect(self).unloaded:
             return 0
         return sum(session.duration for session in self.focus_sessions)

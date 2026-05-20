@@ -9,6 +9,7 @@ from app.api.deps import get_current_user
 from app.models.user import User
 from app.models.board import Board
 from app.models.column import Column
+from app.models.task import Task
 from app.schemas.board import BoardCreate, BoardUpdate, BoardResponse, BoardDetailedResponse
 
 router = APIRouter(prefix="/boards", tags=["boards"])
@@ -64,7 +65,9 @@ async def get_board_detail(
         select(Board)
         .filter(Board.id == board_id, Board.user_id == current_user.id)
         .options(
-            selectinload(Board.columns).selectinload(Column.tasks)
+            selectinload(Board.columns)
+            .selectinload(Column.tasks)
+            .selectinload(Task.focus_sessions)
         )
     )
     board = result.scalars().first()
