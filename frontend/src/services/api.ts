@@ -167,14 +167,54 @@ export const api = {
       body: JSON.stringify({ column_ids: columnIds }),
     }),
 
+  // Tags
+  getTags: () =>
+    request('/tags'),
+
+  createTag: (name: string, color?: string) =>
+    request('/tags', {
+      method: 'POST',
+      body: JSON.stringify({ name, color }),
+    }),
+
+  updateTag: (tagId: number, data: { name?: string; color?: string }) =>
+    request(`/tags/${tagId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deleteTag: (tagId: number) =>
+    request(`/tags/${tagId}`, {
+      method: 'DELETE',
+    }),
+
   // Tasks
-  createTask: (columnId: number, taskData: { title: string; description?: string; priority?: string; due_date?: string }) => 
+  createTask: (
+    columnId: number,
+    taskData: {
+      title: string;
+      description?: string;
+      priority?: string;
+      due_date?: string;
+      tag_ids?: number[];
+    },
+  ) =>
     request(`/columns/${columnId}/tasks`, {
       method: 'POST',
       body: JSON.stringify(taskData),
     }),
 
-  updateTask: (taskId: number, taskData: { title?: string; description?: string; priority?: string; due_date?: string | null; column_id?: number }) => 
+  updateTask: (
+    taskId: number,
+    taskData: {
+      title?: string;
+      description?: string;
+      priority?: string;
+      due_date?: string | null;
+      column_id?: number;
+      tag_ids?: number[];
+    },
+  ) =>
     request(`/tasks/${taskId}`, {
       method: 'PUT',
       body: JSON.stringify(taskData),

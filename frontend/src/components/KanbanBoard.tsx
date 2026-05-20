@@ -1,6 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
 
+interface Tag {
+  id: number;
+  name: string;
+  color?: string | null;
+}
+
 interface Task {
   id: number;
   title: string;
@@ -11,6 +17,7 @@ interface Task {
   column_id: number;
   board_id: number;
   total_focus_time: number;
+  tags: Tag[];
 }
 
 interface Column {
@@ -51,6 +58,12 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
   // Task detailed view modal
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
 
+  // Tag state (user-scoped, loaded once per board mount). The filter is
+  // an inclusive OR — a task with any selected tag stays visible.
+  const [allTags, setAllTags] = useState<Tag[]>([]);
+  const [filterTagIds, setFilterTagIds] = useState<number[]>([]);
+  const [newTagName, setNewTagName] = useState('');
+
   const fetchBoardDetails = async () => {
     try {
       setLoading(true);
@@ -63,9 +76,52 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
     }
   };
 
+  const fetchTags = async () => {
+    try {
+      const data = await api.getTags();
+      setAllTags(data);
+    } catch (err) {
+      console.error('Error loading tags:', err);
+    }
+  };
+
   useEffect(() => {
     fetchBoardDetails();
+    fetchTags();
   }, [boardId]);
+
+  const toggleFilterTag = (tagId: number) => {
+    setFilterTagIds((prev) =>
+      prev.includes(tagId) ? prev.filter((t) => t !== tagId) : [...prev, tagId],
+    );
+  };
+
+  const handleCreateTag = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTagName.trim()) return;
+    try {
+      await api.createTag(newTagName.trim());
+      setNewTagName('');
+      await fetchTags();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleToggleTaskTag = async (task: Task, tagId: number) => {
+    const has = task.tags.some((t) => t.id === tagId);
+    const nextIds = has
+      ? task.tags.filter((t) => t.id !== tagId).map((t) => t.id)
+      : [...task.tags.map((t) => t.id), tagId];
+    try {
+      const updated = await api.updateTask(task.id, { tag_ids: nextIds });
+      // Sync local state so the modal + card reflect immediately.
+      setSelectedTask(updated);
+      fetchBoardDetails();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
 
   // Column Actions
   const handleAddColumn = async (e: React.FormEvent) => {
@@ -282,6 +338,39 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
         </form>
       )}
 
+      {/* Tag filter bar — inclusive OR */}
+      {allTags.length > 0 && (
+        <div style={styles.tagFilterBar}>
+          <span style={styles.tagFilterLabel}>Filtrar:</span>
+          {allTags.map((tag) => {
+            const active = filterTagIds.includes(tag.id);
+            return (
+              <button
+                key={tag.id}
+                className="glass-button-secondary"
+                style={{
+                  ...styles.tagFilterChip,
+                  ...(active ? styles.tagFilterChipActive : {}),
+                  ...(tag.color && !active ? { borderColor: tag.color } : {}),
+                }}
+                onClick={() => toggleFilterTag(tag.id)}
+              >
+                {tag.name}
+              </button>
+            );
+          })}
+          {filterTagIds.length > 0 && (
+            <button
+              style={styles.tagFilterClear}
+              onClick={() => setFilterTagIds([])}
+              title="Quitar filtros"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Columns Workspace */}
       <div style={styles.workspace}>
         {board.columns.map((col) => (
@@ -304,7 +393,17 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
 
             {/* Task list container */}
             <div style={styles.taskList}>
-              {col.tasks.map((task, taskIndex) => (
+              {col.tasks
+                .filter((task) =>
+                  filterTagIds.length === 0
+                    ? true
+                    : task.tags.some((t) => filterTagIds.includes(t.id)),
+                )
+                .map((task) => {
+                  // Drop index targets the original (unfiltered) position so
+                  // reordering still makes sense when a tag filter is active.
+                  const originalIndex = col.tasks.findIndex((t) => t.id === task.id);
+                  return (
                 <div
                   key={task.id}
                   className="glass-card"
@@ -312,7 +411,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                   draggable
                   onDragStart={(e) => handleDragStart(e, task.id)}
                   onDragOver={handleDragOver}
-                  onDrop={(e) => handleTaskDrop(e, col.id, taskIndex)}
+                  onDrop={(e) => handleTaskDrop(e, col.id, originalIndex)}
                   onClick={() => setSelectedTask(task)}
                 >
                   <div style={styles.taskCardHeader}>
@@ -334,6 +433,23 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                   {task.description && (
                     <p style={styles.taskDesc}>{task.description}</p>
                   )}
+                  {task.tags.length > 0 && (
+                    <div style={styles.tagChipRow}>
+                      {task.tags.map((tag) => (
+                        <span
+                          key={tag.id}
+                          style={{
+                            ...styles.tagChip,
+                            ...(tag.color
+                              ? { borderColor: tag.color, color: tag.color }
+                              : {}),
+                          }}
+                        >
+                          {tag.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <div style={styles.taskFooter}>
                     {task.due_date ? (
                       <span style={styles.dueDate}>
@@ -353,7 +469,8 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                     </button>
                   </div>
                 </div>
-              ))}
+                  );
+                })}
 
               {col.tasks.length === 0 && (
                 <div style={styles.emptyColText}>Arrastra aquí tareas</div>
@@ -486,6 +603,59 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                     })}
                   />
                 </div>
+              </div>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Etiquetas</label>
+                <div style={styles.tagPickerRow}>
+                  {allTags.length === 0 ? (
+                    <span style={styles.tagPickerEmpty}>
+                      Aún no tienes etiquetas. Crea una abajo.
+                    </span>
+                  ) : (
+                    allTags.map((tag) => {
+                      const active = selectedTask.tags.some((t) => t.id === tag.id);
+                      return (
+                        <button
+                          key={tag.id}
+                          type="button"
+                          className="glass-button-secondary"
+                          style={{
+                            ...styles.tagPickerChip,
+                            ...(active ? styles.tagPickerChipActive : {}),
+                            ...(tag.color && !active
+                              ? { borderColor: tag.color }
+                              : {}),
+                          }}
+                          onClick={() => handleToggleTaskTag(selectedTask, tag.id)}
+                        >
+                          {tag.name}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+                <form
+                  onSubmit={handleCreateTag}
+                  style={styles.tagCreateForm}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <input
+                    type="text"
+                    className="glass-input"
+                    style={styles.tagCreateInput}
+                    placeholder="Crear nueva etiqueta..."
+                    value={newTagName}
+                    onChange={(e) => setNewTagName(e.target.value)}
+                  />
+                  <button
+                    type="submit"
+                    className="glass-button-secondary"
+                    style={styles.tagCreateBtn}
+                  >
+                    Añadir
+                  </button>
+                </form>
               </div>
 
               {selectedTask.total_focus_time > 0 && (
@@ -777,5 +947,87 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     justifyContent: 'space-between',
     marginTop: '10px',
+  },
+  tagChipRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '4px',
+    marginTop: '8px',
+  },
+  tagChip: {
+    fontSize: '10px',
+    padding: '2px 8px',
+    borderRadius: '999px',
+    border: '1px solid rgba(255,255,255,0.15)',
+    color: 'var(--text-secondary)',
+    background: 'rgba(255,255,255,0.03)',
+    letterSpacing: '0.3px',
+  },
+  tagFilterBar: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '6px',
+    alignItems: 'center',
+    marginBottom: '16px',
+  },
+  tagFilterLabel: {
+    fontSize: '11px',
+    textTransform: 'uppercase',
+    letterSpacing: '1px',
+    color: 'var(--text-muted)',
+    marginRight: '4px',
+  },
+  tagFilterChip: {
+    padding: '4px 10px',
+    fontSize: '12px',
+    borderRadius: '999px',
+  },
+  tagFilterChipActive: {
+    background: 'rgba(99,102,241,0.18)',
+    borderColor: 'rgba(99,102,241,0.45)',
+    color: '#ffffff',
+  },
+  tagFilterClear: {
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--text-muted)',
+    cursor: 'pointer',
+    fontSize: '12px',
+    marginLeft: '4px',
+  },
+  tagPickerRow: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '6px',
+  },
+  tagPickerChip: {
+    padding: '4px 10px',
+    fontSize: '12px',
+    borderRadius: '999px',
+    cursor: 'pointer',
+  },
+  tagPickerChipActive: {
+    background: 'rgba(99,102,241,0.18)',
+    borderColor: 'rgba(99,102,241,0.45)',
+    color: '#ffffff',
+  },
+  tagPickerEmpty: {
+    fontSize: '12px',
+    color: 'var(--text-muted)',
+    fontStyle: 'italic',
+  },
+  tagCreateForm: {
+    display: 'flex',
+    gap: '6px',
+    marginTop: '10px',
+  },
+  tagCreateInput: {
+    flex: 1,
+    padding: '6px 10px',
+    fontSize: '12px',
+  },
+  tagCreateBtn: {
+    padding: '6px 12px',
+    fontSize: '12px',
   },
 };
