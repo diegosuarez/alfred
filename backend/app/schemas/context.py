@@ -9,12 +9,16 @@ class ContextBase(BaseModel):
 
 
 class ContextCreate(ContextBase):
-    pass
+    google_account_id: Optional[int] = None
 
 
 class ContextUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=80)
     color: Optional[str] = Field(default=None, max_length=16)
+    # Set to a positive int to attach, set to 0 to detach (Pydantic does
+    # not distinguish "absent" from "null" in a regular JSON body, so we
+    # use 0 as the sentinel for "clear").
+    google_account_id: Optional[int] = None
 
 
 class ContextResponse(ContextBase):
@@ -22,5 +26,6 @@ class ContextResponse(ContextBase):
 
     id: int
     user_id: int
+    google_account_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime

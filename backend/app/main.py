@@ -6,6 +6,7 @@ from app.api.auth import router as auth_router
 from app.api.boards import router as boards_router, DEFAULT_CONTEXT_NAME
 from app.api.columns import router as columns_router
 from app.api.contexts import router as contexts_router
+from app.api.google_accounts import router as google_accounts_router
 from app.api.tasks import router as tasks_router
 from app.api.focus import router as focus_router
 from app.models.board import Board
@@ -83,6 +84,7 @@ app.add_middleware(
 # Wire up routers
 app.include_router(auth_router, prefix="/api")
 app.include_router(contexts_router, prefix="/api")
+app.include_router(google_accounts_router, prefix="/api")
 app.include_router(boards_router, prefix="/api")
 app.include_router(columns_router, prefix="/api")
 app.include_router(tasks_router, prefix="/api")

@@ -21,10 +21,32 @@ from app.schemas.user import Token, UserCreate, UserResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-# Cookie carries a signed nonce we expect back as `state` from Google.
+# Cookie carries the same signed blob we send as `state` to Google, so
+# we can verify a redirect is the response to a request *we* started.
 _STATE_COOKIE = "alfred_oauth_state"
 _STATE_MAX_AGE_SECONDS = 600  # 10 minutes is plenty for a redirect roundtrip
+_STATE_COOKIE_PATH = "/api/auth/google"
 _state_signer = URLSafeTimedSerializer(settings.JWT_SECRET, salt="alfred-oauth-state")
+
+
+def build_oauth_state(user_id: int | None = None, scopes: list[str] | None = None) -> str:
+    """Pack the OAuth state as a signed dict. When user_id is set we treat
+    the callback as a connect-to-existing-user flow (Fase 3) instead of a
+    login lookup."""
+    return _state_signer.dumps({
+        "nonce": secrets.token_urlsafe(16),
+        "user_id": user_id,
+        "scopes": scopes or google_oauth.LOGIN_SCOPES,
+    })
+
+
+def verify_oauth_state(state: str, cookie_state: str | None) -> dict:
+    if not cookie_state or cookie_state != state:
+        raise HTTPException(status_code=400, detail="Invalid OAuth state")
+    try:
+        return _state_signer.loads(state, max_age=_STATE_MAX_AGE_SECONDS)
+    except BadSignature:
+        raise HTTPException(status_code=400, detail="Invalid OAuth state")
 
 @router.post("/register", response_model=UserResponse)
 async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
@@ -65,6 +87,7 @@ async def login(
 
 
 def _require_google_configured() -> None:
+    """Public alias re-exported for sibling routers (google_accounts)."""
     if not google_oauth.is_configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -74,20 +97,22 @@ def _require_google_configured() -> None:
 
 @router.get("/google/login")
 async def google_login() -> RedirectResponse:
-    """Kick off the Google OAuth2 authorization-code flow."""
+    """Kick off the Google OAuth2 authorization-code flow for a NEW
+    session (anonymous caller). Connecting an additional account to an
+    already-logged-in user lives in app.api.google_accounts.
+    """
     _require_google_configured()
-    nonce = secrets.token_urlsafe(32)
-    signed = _state_signer.dumps(nonce)
+    state = build_oauth_state()
 
-    response = RedirectResponse(url=google_oauth.build_authorize_url(state=signed))
+    response = RedirectResponse(url=google_oauth.build_authorize_url(state=state))
     response.set_cookie(
         _STATE_COOKIE,
-        signed,
+        state,
         max_age=_STATE_MAX_AGE_SECONDS,
         httponly=True,
         samesite="lax",
         secure=settings.APP_URL.startswith("https://"),
-        path="/api/auth/google",
+        path=_STATE_COOKIE_PATH,
     )
     return response
 
@@ -111,12 +136,7 @@ async def google_callback(
         raise HTTPException(status_code=400, detail="Missing code or state")
 
     cookie_state = request.cookies.get(_STATE_COOKIE)
-    if not cookie_state or cookie_state != state:
-        raise HTTPException(status_code=400, detail="Invalid OAuth state")
-    try:
-        _state_signer.loads(state, max_age=_STATE_MAX_AGE_SECONDS)
-    except BadSignature:
-        raise HTTPException(status_code=400, detail="Invalid OAuth state")
+    payload = verify_oauth_state(state, cookie_state)
 
     token_payload = await google_oauth.exchange_code_for_token(
         code=code, redirect_uri=google_oauth.build_redirect_uri()
@@ -128,14 +148,26 @@ async def google_callback(
     if not email or not google_sub:
         raise HTTPException(status_code=400, detail="Google did not return an email")
 
-    user = (
-        await db.execute(select(User).filter(User.email == email))
-    ).scalars().first()
-    if not user:
-        # First Google login from an unknown email creates a passwordless User.
-        user = User(email=email, hashed_password=None)
-        db.add(user)
-        await db.flush()
+    link_user_id = payload.get("user_id")
+    if link_user_id is not None:
+        # Connect-to-current-user flow: the caller was already logged in
+        # when they started this. The state cookie pinned the user_id, so
+        # we trust it here even though the caller is anonymous from the
+        # callback's perspective.
+        user = (
+            await db.execute(select(User).filter(User.id == link_user_id))
+        ).scalars().first()
+        if not user:
+            raise HTTPException(status_code=400, detail="Link target user no longer exists")
+    else:
+        user = (
+            await db.execute(select(User).filter(User.email == email))
+        ).scalars().first()
+        if not user:
+            # First Google login from an unknown email creates a passwordless User.
+            user = User(email=email, hashed_password=None)
+            db.add(user)
+            await db.flush()
 
     account = (
         await db.execute(
@@ -161,9 +193,15 @@ async def google_callback(
     await db.commit()
     await db.refresh(user)
 
-    jwt_token = create_access_token(data={"sub": user.email, "user_id": user.id})
-    redirect = _frontend_redirect(token=jwt_token)
-    redirect.delete_cookie(_STATE_COOKIE, path="/api/auth/google")
+    if link_user_id is None:
+        jwt_token = create_access_token(data={"sub": user.email, "user_id": user.id})
+        redirect = _frontend_redirect(token=jwt_token)
+    else:
+        # Connect flow: caller already has a session, just go back to settings.
+        redirect = RedirectResponse(
+            url=f"{settings.FRONTEND_URL.rstrip('/')}/?google_connected=1"
+        )
+    redirect.delete_cookie(_STATE_COOKIE, path=_STATE_COOKIE_PATH)
     return redirect
 
 

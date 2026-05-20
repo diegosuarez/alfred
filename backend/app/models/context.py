@@ -14,10 +14,19 @@ class Context(Base):
     name = Column(String, nullable=False)
     color = Column(String, nullable=True)  # e.g. '#a855f7'
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # Optional pointer to a Google account this context uses for
+    # calendar/contacts integrations. SET NULL on delete so removing the
+    # account merely detaches it instead of cascading the context away.
+    google_account_id = Column(
+        Integer,
+        ForeignKey("google_accounts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     user = relationship("User", back_populates="contexts")
+    google_account = relationship("GoogleAccount")
     boards = relationship(
         "Board",
         back_populates="context",
