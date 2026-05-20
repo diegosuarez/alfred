@@ -1,0 +1,34 @@
+# Node
+node_modules/
+dist/
+.env
+.env.local
+.eslintcache
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Data / DB
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Docker
+.docker/
+
+# CodeGraph
+.codegraph/
+
+# IDEs & System
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

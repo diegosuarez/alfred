@@ -1,0 +1,30 @@
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
+from sqlalchemy.orm import relationship
+from datetime import datetime
+from app.database import Base
+
+class Task(Base):
+    __tablename__ = "tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, nullable=False)
+    description = Column(String, nullable=True)
+    priority = Column(String, default="medium", nullable=False)  # low, medium, high
+    due_date = Column(DateTime, nullable=True)
+    position = Column(Integer, default=0, nullable=False)
+    
+    column_id = Column(Integer, ForeignKey("columns.id", ondelete="CASCADE"), nullable=False)
+    board_id = Column(Integer, ForeignKey("boards.id", ondelete="CASCADE"), nullable=False)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    board = relationship("Board", back_populates="tasks")
+    column = relationship("Column", back_populates="tasks")
+    focus_sessions = relationship("FocusSession", back_populates="task", cascade="all, delete-orphan")
+
+    @property
+    def total_focus_time(self) -> int:
+        if not self.focus_sessions:
+            return 0
+        return sum(session.duration for session in self.focus_sessions)
