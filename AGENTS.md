@@ -52,9 +52,12 @@ backend/app/
     boards.py        CRUD; create_board seeds 3 default columns + default Context
     columns.py       CRUD + /boards/{id}/columns/reorder
     tasks.py         CRUD + /columns/{id}/tasks/reorder
+    subtasks.py      POST /tasks/{id}/subtasks + PUT/DELETE /subtasks/{id}
+    personal_access_tokens.py  Mint/list/revoke PATs (secret returned ONCE)
     focus.py         POST /focus, GET /focus/stats (7-day series)
   models/            SQLAlchemy ORM: User, Context, GoogleAccount, Tag,
-                     Board, Column, Task, FocusSession + task_tags M2M
+                     Board, Column, Task, SubTask, FocusSession,
+                     PersonalAccessToken + task_tags M2M
   schemas/           Pydantic v2 request/response models
 tests/               pytest suite, in-memory SQLite
 
@@ -70,6 +73,7 @@ frontend/src/
     QuickCapture.tsx Alt+Q modal that creates a task anywhere
     Statistics.tsx   KPIs + custom SVG bar chart (no chart lib)
     GoogleSettings.tsx  Modal: connected accounts + Context assignment
+    TokensSettings.tsx  Modal: mint/list/revoke Personal Access Tokens
 
 systemd/
   alfred.service     Unit template (placeholder WorkingDirectory)
@@ -79,11 +83,13 @@ systemd/
 ## Domain model
 
 ```
-User 1─* GoogleAccount        (personal / work / ...)
-User 1─* Context              (Trabajo, Personal, Familia, ...)
-   Context *─1 GoogleAccount  (optional, multiple contexts may share one)
-User 1─* Tag                  (urgent, blocked, ..., user-scoped)
-   Task *─* Tag               (task_tags join table)
+User 1─* GoogleAccount         (personal / work / ...)
+User 1─* Context               (Trabajo, Personal, Familia, ...)
+   Context *─1 GoogleAccount   (optional, multiple contexts may share one)
+User 1─* Tag                   (urgent, blocked, ..., user-scoped)
+User 1─* PersonalAccessToken   (CLI / AI client credentials)
+   Task *─* Tag                (task_tags join table)
+   Task 1─* SubTask            (checklist inside a Task)
 Context 1─* Board 1─* Column 1─* Task 1─* FocusSession
                             └────────* Task (also direct FK board_id)
 ```
@@ -103,6 +109,23 @@ Context 1─* Board 1─* Column 1─* Task 1─* FocusSession
 - TaskUpdate.tag_ids has 3-state semantics: absent means no change,
   `[]` clears all tags, a non-empty list replaces the full set.
   TaskCreate.tag_ids defaults to `[]`.
+- SubTasks are checklist items: title + completed + position. They
+  don't have their own column, priority or focus sessions. They live
+  only in the parent's detail modal; the card shows a `done/total`
+  counter.
+
+## Personal Access Tokens (PATs)
+
+`get_current_user` accepts either a JWT or a PAT in the same
+`Authorization: Bearer ...` header — branching on the
+`alfred_pat_` prefix. PATs are random 32-char URL-safe secrets prefixed
+with `alfred_pat_`; we store SHA-256 of the full token plus the first
+8 chars of the random portion as an indexed lookup `prefix`. The
+plaintext token is shown exactly once at creation. Revocation is a
+soft delete (sets `revoked_at`) so audit fields survive.
+
+Use PATs for headless clients (CLI, AI assistants). Mint and revoke
+from the **🔑 Tokens API** modal in the sidebar footer.
 
 - `Task` has FKs to both `column_id` and `board_id`. The board FK is
   redundant for ownership checks but used by joins for cross-column
@@ -170,7 +193,7 @@ The dev server picks up `VITE_API_URL` (default `http://localhost:30000`).
 
 ```bash
 cd backend
-uv run pytest        # 62 tests, in-memory SQLite, ~25s
+uv run pytest        # 78 tests, in-memory SQLite, ~33s
 ```
 
 Tests use `httpx.AsyncClient` + `ASGITransport`, so the FastAPI
