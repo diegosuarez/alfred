@@ -7,8 +7,8 @@ from app.core.security import decode_access_token
 from app.models.user import User
 from app.schemas.user import TokenData
 
-# Matches the login endpoint URL
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/auth/login")
+# Matches the login endpoint URL (absolute path so Swagger's Authorize works)
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 async def get_current_user(
     token: str = Depends(oauth2_scheme),

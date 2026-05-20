@@ -24,10 +24,16 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# CORS middleware configuration (allows local hot-reloaded frontend on 5173)
+import os
+
+# CORS middleware. Allow-credentials + wildcard origins is invalid per
+# the CORS spec, so we list dev origins explicitly. Extend via env.
+_default_origins = "http://localhost:5173,http://localhost:30001,http://127.0.0.1:5173,http://127.0.0.1:30001"
+_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", _default_origins).split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
