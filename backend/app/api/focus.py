@@ -2,10 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func
-from datetime import datetime, timedelta
-from typing import List
+from datetime import timedelta
 
 from app.database import get_db
+from app.core.time import utcnow
 from app.api.deps import get_current_user
 from app.models.user import User
 from app.models.board import Board
@@ -59,7 +59,7 @@ async def get_focus_stats(
             "sessions_completed": 0,
             "daily_stats": [
                 DailyFocusStats(
-                    date=(datetime.utcnow() - timedelta(days=6-i)).strftime('%Y-%m-%d'),
+                    date=(utcnow() - timedelta(days=6-i)).strftime('%Y-%m-%d'),
                     total_seconds=0
                 ) for i in range(7)
             ]
@@ -78,7 +78,7 @@ async def get_focus_stats(
     sessions_completed = sessions_count_result.scalars().first() or 0
     
     # 7 Days Daily focus aggregation (SQLite specific format)
-    seven_days_ago = datetime.utcnow() - timedelta(days=7)
+    seven_days_ago = utcnow() - timedelta(days=7)
     date_format = func.strftime('%Y-%m-%d', FocusSession.created_at)
     
     daily_result = await db.execute(
@@ -97,7 +97,7 @@ async def get_focus_stats(
     # Fill in missing dates to create a continuous 7-day series for the UI charts
     daily_stats = []
     for i in range(7):
-        date_str = (datetime.utcnow() - timedelta(days=6-i)).strftime('%Y-%m-%d')
+        date_str = (utcnow() - timedelta(days=6-i)).strftime('%Y-%m-%d')
         daily_stats.append(
             DailyFocusStats(
                 date=date_str,
