@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import List
 
@@ -10,11 +10,10 @@ class FocusSessionCreate(FocusSessionBase):
     pass
 
 class FocusSessionResponse(FocusSessionBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     created_at: datetime
-
-    class Config:
-        from_attributes = True
 
 class DailyFocusStats(BaseModel):
     date: str  # YYYY-MM-DD

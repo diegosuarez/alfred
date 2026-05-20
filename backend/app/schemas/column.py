@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import Optional, List
 
@@ -14,13 +14,12 @@ class ColumnUpdate(BaseModel):
     position: Optional[int] = None
 
 class ColumnResponse(ColumnBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     board_id: int
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 class ColumnReorder(BaseModel):
     column_ids: List[int]

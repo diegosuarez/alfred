@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import Optional, List
 
@@ -21,15 +21,14 @@ class TaskUpdate(BaseModel):
     column_id: Optional[int] = None
 
 class TaskResponse(TaskBase):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     column_id: int
     board_id: int
     created_at: datetime
     updated_at: datetime
     total_focus_time: Optional[int] = 0
-
-    class Config:
-        from_attributes = True
 
 class TaskReorder(BaseModel):
     task_ids: List[int]
