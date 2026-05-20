@@ -108,6 +108,9 @@ async def get_board_detail(
             selectinload(Board.columns)
             .selectinload(Column.tasks)
             .selectinload(Task.tags),
+            selectinload(Board.columns)
+            .selectinload(Column.tasks)
+            .selectinload(Task.subtasks),
         )
     )
     board = result.scalars().first()

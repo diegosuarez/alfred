@@ -9,6 +9,7 @@ from app.api.contexts import router as contexts_router
 from app.api.google_accounts import router as google_accounts_router
 from app.api.tags import router as tags_router
 from app.api.tasks import router as tasks_router
+from app.api.subtasks import router as subtasks_router
 from app.api.focus import router as focus_router
 from app.models.board import Board
 from app.models.context import Context
@@ -90,6 +91,7 @@ app.include_router(tags_router, prefix="/api")
 app.include_router(boards_router, prefix="/api")
 app.include_router(columns_router, prefix="/api")
 app.include_router(tasks_router, prefix="/api")
+app.include_router(subtasks_router, prefix="/api")
 app.include_router(focus_router, prefix="/api")
 
 @app.get("/")

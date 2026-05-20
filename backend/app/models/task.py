@@ -28,6 +28,12 @@ class Task(Base):
         back_populates="tasks",
         order_by="Tag.name",
     )
+    subtasks = relationship(
+        "SubTask",
+        back_populates="task",
+        cascade="all, delete-orphan",
+        order_by="SubTask.position",
+    )
 
     @property
     def total_focus_time(self) -> int:

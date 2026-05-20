@@ -2,6 +2,7 @@ from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import Optional, List
 
+from app.schemas.subtask import SubTaskResponse
 from app.schemas.tag import TagResponse
 
 
@@ -36,6 +37,7 @@ class TaskResponse(TaskBase):
     updated_at: datetime
     total_focus_time: Optional[int] = 0
     tags: List[TagResponse] = []
+    subtasks: List[SubTaskResponse] = []
 
 class TaskReorder(BaseModel):
     task_ids: List[int]

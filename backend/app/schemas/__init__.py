@@ -1,6 +1,7 @@
 from app.schemas.user import UserCreate, UserResponse, Token, TokenData
 from app.schemas.context import ContextCreate, ContextUpdate, ContextResponse
 from app.schemas.tag import TagCreate, TagUpdate, TagResponse
+from app.schemas.subtask import SubTaskCreate, SubTaskUpdate, SubTaskResponse
 from app.schemas.board import BoardCreate, BoardUpdate, BoardResponse, BoardDetailedResponse
 from app.schemas.column import ColumnCreate, ColumnUpdate, ColumnResponse, ColumnReorder, ColumnDetailedResponse
 from app.schemas.task import TaskCreate, TaskUpdate, TaskResponse, TaskReorder
@@ -17,6 +18,9 @@ __all__ = [
     "TagCreate",
     "TagUpdate",
     "TagResponse",
+    "SubTaskCreate",
+    "SubTaskUpdate",
+    "SubTaskResponse",
     "BoardCreate",
     "BoardUpdate",
     "BoardResponse",

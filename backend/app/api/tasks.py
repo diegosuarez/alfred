@@ -78,7 +78,9 @@ async def create_task(
     # Re-fetch with tags eagerly loaded so the response serializes them
     # without triggering a lazy SQL load under the async session.
     refreshed = await db.execute(
-        select(Task).options(selectinload(Task.tags)).filter(Task.id == task.id)
+        select(Task)
+        .options(selectinload(Task.tags), selectinload(Task.subtasks))
+        .filter(Task.id == task.id)
     )
     return refreshed.scalars().first()
 
@@ -97,6 +99,7 @@ async def update_task(
         .options(
             selectinload(Task.focus_sessions),
             selectinload(Task.tags),
+            selectinload(Task.subtasks),
         )
     )
     task = task_result.scalars().first()
