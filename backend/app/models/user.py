@@ -19,3 +19,6 @@ class User(Base):
         "GoogleAccount", back_populates="user", cascade="all, delete-orphan"
     )
     tags = relationship("Tag", back_populates="user", cascade="all, delete-orphan")
+    personal_access_tokens = relationship(
+        "PersonalAccessToken", back_populates="user", cascade="all, delete-orphan"
+    )
