@@ -166,14 +166,9 @@ for symbol lookups. The watcher debounces ~500 ms behind file writes.
 
 ## Known sharp edges (not blocking, fix when relevant)
 
-- `Reorder N+1`: `columns.reorder_columns` and `tasks.reorder_tasks`
-  issue one SELECT per id. Trivial today, bulk update if it grows.
-- Pydantic v2 deprecation warnings about class-based `Config` show
-  up in `pytest` runs. Mechanical migration to
-  `model_config = ConfigDict(from_attributes=True)`.
-- The drop handler in `KanbanBoard.handleDrop` only changes
-  `column_id` — it does not call the `tasks/reorder` endpoint that
-  exists. So intra-column order is not preserved across drops.
+- `columns.reorder_columns` still issues one SELECT per id (N+1).
+  Trivial today, bulk update if it grows. `tasks.reorder_tasks`
+  already uses a single batched SELECT.
 - `Quick Capture` (Alt+Q) re-fetches columns for any board it shows;
   it could share board details fetched by other views.
 - JWT secret has a dev default in `app/core/config.py`. Override via
