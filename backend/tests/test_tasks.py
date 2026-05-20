@@ -110,3 +110,86 @@ async def test_reorder_tasks_within_column(
     detail = await client.get(f"/api/boards/{board['id']}", headers=auth_headers)
     col = next(c for c in detail.json()["columns"] if c["id"] == column_id)
     assert [t["id"] for t in col["tasks"]] == reversed_ids
+
+
+async def test_reorder_moves_task_from_another_column(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    board = await _make_board(client, auth_headers)
+    col_a, col_b = board["columns"][0]["id"], board["columns"][1]["id"]
+
+    a_ids = []
+    for title in ["A1", "A2"]:
+        r = await client.post(
+            f"/api/columns/{col_a}/tasks",
+            json={"title": title, "column_id": col_a},
+            headers=auth_headers,
+        )
+        a_ids.append(r.json()["id"])
+    b_first = await client.post(
+        f"/api/columns/{col_b}/tasks",
+        json={"title": "B1", "column_id": col_b},
+        headers=auth_headers,
+    )
+    b_first_id = b_first.json()["id"]
+
+    # Move A1 into column B at index 0; B1 trails it.
+    resp = await client.post(
+        f"/api/columns/{col_b}/tasks/reorder",
+        json={"task_ids": [a_ids[0], b_first_id], "column_id": col_b},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 204
+
+    detail = await client.get(f"/api/boards/{board['id']}", headers=auth_headers)
+    cols = {c["id"]: c for c in detail.json()["columns"]}
+    assert [t["id"] for t in cols[col_b]["tasks"]] == [a_ids[0], b_first_id]
+    assert [t["id"] for t in cols[col_a]["tasks"]] == [a_ids[1]]
+
+
+async def test_reorder_rejects_mismatched_column_id(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    board = await _make_board(client, auth_headers)
+    col_a, col_b = board["columns"][0]["id"], board["columns"][1]["id"]
+
+    resp = await client.post(
+        f"/api/columns/{col_a}/tasks/reorder",
+        json={"task_ids": [], "column_id": col_b},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 400
+
+
+async def test_reorder_rejects_foreign_task(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    board = await _make_board(client, auth_headers)
+    col_id = board["columns"][0]["id"]
+
+    # Foreign user creates their own task.
+    await client.post(
+        "/api/auth/register",
+        json={"email": "stranger@example.com", "password": "longenough"},
+    )
+    login = await client.post(
+        "/api/auth/login",
+        data={"username": "stranger@example.com", "password": "longenough"},
+    )
+    other = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    other_board = await _make_board(client, other)
+    other_col = other_board["columns"][0]["id"]
+    other_task = await client.post(
+        f"/api/columns/{other_col}/tasks",
+        json={"title": "Foreign", "column_id": other_col},
+        headers=other,
+    )
+    other_task_id = other_task.json()["id"]
+
+    # Caller tries to drag the foreign task into their column.
+    resp = await client.post(
+        f"/api/columns/{col_id}/tasks/reorder",
+        json={"task_ids": [other_task_id], "column_id": col_id},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 404

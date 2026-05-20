@@ -126,7 +126,13 @@ async def reorder_tasks(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    # Verify column belongs to user
+    if reorder.column_id != column_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="column_id in body must match URL"
+        )
+
+    # Verify target column ownership
     col_result = await db.execute(
         select(Column).join(Board).filter(Column.id == column_id, Board.user_id == current_user.id)
     )
@@ -136,17 +142,29 @@ async def reorder_tasks(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Column not found"
         )
-        
-    # Bulk update task indices
-    for idx, t_id in enumerate(reorder.task_ids):
-        t_result = await db.execute(
-            select(Task).filter(Task.id == t_id, Task.column_id == reorder.column_id)
+
+    if not reorder.task_ids:
+        return None
+
+    # Fetch every referenced task in one query, scoped to caller-owned boards.
+    # This supports cross-column moves: a task currently in another column
+    # of the same user becomes part of the target column at the given index.
+    tasks_result = await db.execute(
+        select(Task)
+        .join(Board)
+        .filter(Task.id.in_(reorder.task_ids), Board.user_id == current_user.id)
+    )
+    tasks_by_id = {t.id: t for t in tasks_result.scalars().all()}
+    if len(tasks_by_id) != len(set(reorder.task_ids)):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="One or more tasks not found"
         )
-        task = t_result.scalars().first()
-        if task:
-            task.position = idx
-            if task.column_id != reorder.column_id:
-                task.column_id = reorder.column_id
-                
+
+    for idx, t_id in enumerate(reorder.task_ids):
+        task = tasks_by_id[t_id]
+        task.position = idx
+        task.column_id = column_id
+
     await db.commit()
     return None
