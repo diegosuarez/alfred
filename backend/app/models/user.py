@@ -13,3 +13,4 @@ class User(Base):
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     boards = relationship("Board", back_populates="user", cascade="all, delete-orphan")
+    contexts = relationship("Context", back_populates="user", cascade="all, delete-orphan")

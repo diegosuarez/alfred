@@ -1,18 +1,59 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.database import engine, Base
+from app.database import engine, Base, AsyncSessionLocal
 from app.api.auth import router as auth_router
-from app.api.boards import router as boards_router
+from app.api.boards import router as boards_router, DEFAULT_CONTEXT_NAME
 from app.api.columns import router as columns_router
+from app.api.contexts import router as contexts_router
 from app.api.tasks import router as tasks_router
 from app.api.focus import router as focus_router
+from app.models.board import Board
+from app.models.context import Context
+from sqlalchemy.future import select
+from collections import defaultdict
+
+async def _backfill_legacy_boards() -> None:
+    """Boards created before contexts existed land with context_id NULL.
+    Group them by user, ensure each user has a default context, and
+    attach the orphan boards. Idempotent — safe to run on every boot.
+    """
+    async with AsyncSessionLocal() as session:
+        orphans = (
+            await session.execute(select(Board).filter(Board.context_id.is_(None)))
+        ).scalars().all()
+        if not orphans:
+            return
+
+        by_user: dict[int, list[Board]] = defaultdict(list)
+        for board in orphans:
+            by_user[board.user_id].append(board)
+
+        for user_id, user_boards in by_user.items():
+            ctx = (
+                await session.execute(
+                    select(Context).filter(
+                        Context.user_id == user_id,
+                        Context.name == DEFAULT_CONTEXT_NAME,
+                    )
+                )
+            ).scalars().first()
+            if not ctx:
+                ctx = Context(user_id=user_id, name=DEFAULT_CONTEXT_NAME)
+                session.add(ctx)
+                await session.flush()
+            for board in user_boards:
+                board.context_id = ctx.id
+
+        await session.commit()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Auto-initialize SQLite database tables on startup
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await _backfill_legacy_boards()
     yield
     # Dispose of engine connection pool on shutdown
     await engine.dispose()
@@ -41,6 +82,7 @@ app.add_middleware(
 
 # Wire up routers
 app.include_router(auth_router, prefix="/api")
+app.include_router(contexts_router, prefix="/api")
 app.include_router(boards_router, prefix="/api")
 app.include_router(columns_router, prefix="/api")
 app.include_router(tasks_router, prefix="/api")
