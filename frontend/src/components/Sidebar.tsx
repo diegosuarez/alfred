@@ -10,8 +10,8 @@ interface SidebarProps {
   boards: Board[];
   activeBoardId: number | null;
   onSelectBoard: (id: number) => void;
-  currentView: 'board' | 'focus' | 'stats';
-  onChangeView: (view: 'board' | 'focus' | 'stats') => void;
+  currentView: 'board' | 'stats';
+  onChangeView: (view: 'board' | 'stats') => void;
   onCreateBoard: (name: string) => Promise<void>;
   onLogout: () => void;
   userEmail: string;
@@ -65,20 +65,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Main Views Navigation */}
       <div style={styles.navigation}>
         <h3 style={styles.navLabel}>General</h3>
-        <button
-          className="glass-button-secondary"
-          style={{
-            ...styles.navBtn,
-            ...(currentView === 'focus' ? styles.activeNavBtn : {}),
-          }}
-          onClick={() => {
-            onChangeView('focus');
-            onCloseMobileSidebar?.();
-          }}
-        >
-          <span style={styles.navIcon}>⏱️</span>
-          <span>Modo Enfoque</span>
-        </button>
         <button
           className="glass-button-secondary"
           style={{

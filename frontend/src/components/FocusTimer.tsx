@@ -116,8 +116,8 @@ export const FocusTimer: React.FC<FocusTimerProps> = ({
   };
 
   // SVG Circular progress math
-  const radius = 120;
-  const stroke = 8;
+  const radius = 80;
+  const stroke = 6;
   const normalizedRadius = radius - stroke * 2;
   const circumference = normalizedRadius * 2 * Math.PI;
   const strokeDashoffset = circumference - (getProgressPercent() / 100) * circumference;
@@ -125,6 +125,18 @@ export const FocusTimer: React.FC<FocusTimerProps> = ({
   return (
     <div style={styles.container} className="animate-fade-in">
       <div className="glass-panel" style={styles.timerCard}>
+        {/* Overlay header with close affordance */}
+        <div style={styles.overlayHeader}>
+          <span style={styles.overlayTitle}>⏱️ Enfoque</span>
+          <button
+            style={styles.overlayCloseBtn}
+            onClick={onClearActiveTask}
+            title="Cerrar"
+          >
+            ✕
+          </button>
+        </div>
+
         {/* Presets Selection */}
         <div style={styles.presets}>
           <button
@@ -230,21 +242,44 @@ export const FocusTimer: React.FC<FocusTimerProps> = ({
 
 const styles: Record<string, React.CSSProperties> = {
   container: {
-    flex: 1,
-    padding: '40px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: '100vh',
+    position: 'fixed',
+    bottom: '24px',
+    right: '24px',
+    zIndex: 950,
+    maxWidth: '380px',
+    width: 'calc(100% - 48px)',
   },
   timerCard: {
     width: '100%',
-    maxWidth: '520px',
-    padding: '40px',
+    padding: '24px',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    gap: '30px',
+    gap: '20px',
+  },
+  overlayHeader: {
+    width: '100%',
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: '4px',
+    borderBottom: '1px solid var(--glass-border)',
+  },
+  overlayTitle: {
+    fontSize: '13px',
+    fontWeight: 600,
+    color: 'var(--text-secondary)',
+    letterSpacing: '0.5px',
+    textTransform: 'uppercase',
+  },
+  overlayCloseBtn: {
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--text-muted)',
+    cursor: 'pointer',
+    fontSize: '14px',
+    padding: '4px 8px',
+    borderRadius: '6px',
   },
   presets: {
     display: 'flex',
@@ -294,8 +329,8 @@ const styles: Record<string, React.CSSProperties> = {
   },
   clockContainer: {
     position: 'relative',
-    width: '240px',
-    height: '240px',
+    width: '160px',
+    height: '160px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -314,10 +349,10 @@ const styles: Record<string, React.CSSProperties> = {
     zIndex: 2,
   },
   timeString: {
-    fontSize: '3.5rem',
+    fontSize: '2.4rem',
     fontWeight: 700,
     fontVariantNumeric: 'tabular-nums',
-    letterSpacing: '-2px',
+    letterSpacing: '-1px',
   },
   modeLabel: {
     fontSize: '10px',

@@ -12,7 +12,7 @@ export const App: React.FC = () => {
   const [userEmail, setUserEmail] = useState('');
   const [boards, setBoards] = useState<any[]>([]);
   const [activeBoardId, setActiveBoardId] = useState<number | null>(null);
-  const [currentView, setCurrentView] = useState<'board' | 'focus' | 'stats'>('focus');
+  const [currentView, setCurrentView] = useState<'board' | 'stats'>('board');
   const [activeTask, setActiveTask] = useState<{ id: number; title: string } | null>(null);
   
   // Responsive mobile states
@@ -97,7 +97,7 @@ export const App: React.FC = () => {
     setUserEmail('');
     setBoards([]);
     setActiveBoardId(null);
-    setCurrentView('focus');
+    setCurrentView('board');
     setActiveTask(null);
   };
 
@@ -114,7 +114,6 @@ export const App: React.FC = () => {
 
   const handleStartFocus = (task: { id: number; title: string }) => {
     setActiveTask(task);
-    setCurrentView('focus');
   };
 
   const handleTaskCaptured = () => {
@@ -183,13 +182,6 @@ export const App: React.FC = () => {
             onStartFocus={handleStartFocus}
           />
         )}
-        {currentView === 'focus' && (
-          <FocusTimer
-            activeTask={activeTask}
-            onClearActiveTask={() => setActiveTask(null)}
-            onSessionLogged={handleTaskCaptured}
-          />
-        )}
         {currentView === 'stats' && (
           <Statistics key={refreshTrigger} />
         )}
@@ -197,6 +189,15 @@ export const App: React.FC = () => {
 
       {/* Floating Keyboard Quick Capture tool */}
       <QuickCapture boards={boards} onTaskCaptured={handleTaskCaptured} />
+
+      {/* Floating Pomodoro overlay (only when a task has been selected to focus on) */}
+      {activeTask && (
+        <FocusTimer
+          activeTask={activeTask}
+          onClearActiveTask={() => setActiveTask(null)}
+          onSessionLogged={handleTaskCaptured}
+        />
+      )}
     </div>
   );
 };
