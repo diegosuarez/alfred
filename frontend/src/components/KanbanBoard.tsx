@@ -141,54 +141,76 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
     }
   };
 
-  // HTML5 Drag & Drop
+  // HTML5 Drag & Drop. Drops on a column append; drops on a task
+  // insert at that task's position so intra-column order survives.
   const handleDragStart = (e: React.DragEvent, taskId: number) => {
     e.dataTransfer.setData('text/plain', taskId.toString());
+    e.dataTransfer.effectAllowed = 'move';
   };
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
   };
 
-  const handleDrop = async (e: React.DragEvent, targetColId: number) => {
-    const taskIdStr = e.dataTransfer.getData('text/plain');
-    if (!taskIdStr) return;
-    const taskId = parseInt(taskIdStr);
-    
-    // Optimizacion UI instantanea (optimistic update)
+  const moveTask = async (taskId: number, targetColId: number, targetIndex?: number) => {
     if (!board) return;
-    
-    // Find task
+
+    let sourceColId: number | null = null;
     let draggedTask: Task | null = null;
-    const updatedColumns = board.columns.map(col => {
-      const taskIndex = col.tasks.findIndex(t => t.id === taskId);
-      if (taskIndex !== -1) {
-        draggedTask = { ...col.tasks[taskIndex], column_id: targetColId };
-        const newTasks = [...col.tasks];
-        newTasks.splice(taskIndex, 1);
-        return { ...col, tasks: newTasks };
+    for (const col of board.columns) {
+      const found = col.tasks.find((t) => t.id === taskId);
+      if (found) {
+        sourceColId = col.id;
+        draggedTask = found;
+        break;
       }
-      return col;
+    }
+    if (!draggedTask || sourceColId === null) return;
+
+    // Build the next state: remove from source, insert into target.
+    const updatedColumns = board.columns.map((col) => {
+      if (col.id !== sourceColId && col.id !== targetColId) return col;
+
+      let tasks = col.tasks.filter((t) => t.id !== taskId);
+      if (col.id === targetColId) {
+        const insertAt = targetIndex === undefined ? tasks.length : Math.min(targetIndex, tasks.length);
+        tasks = [
+          ...tasks.slice(0, insertAt),
+          { ...draggedTask!, column_id: targetColId },
+          ...tasks.slice(insertAt),
+        ];
+      }
+      return { ...col, tasks };
     });
 
-    if (draggedTask) {
-      const finalColumns = updatedColumns.map(col => {
-        if (col.id === targetColId) {
-          return { ...col, tasks: [...col.tasks, draggedTask!] };
-        }
-        return col;
-      });
-      setBoard({ ...board, columns: finalColumns });
-    }
+    setBoard({ ...board, columns: updatedColumns });
+
+    const newOrder = updatedColumns
+      .find((c) => c.id === targetColId)
+      ?.tasks.map((t) => t.id) ?? [];
 
     try {
-      await api.updateTask(taskId, { column_id: targetColId });
-      // Re-fetch to sync backend ordering exactly
-      fetchBoardDetails();
+      await api.reorderTasks(targetColId, newOrder);
     } catch (err: any) {
       alert(err.message);
       fetchBoardDetails();
     }
+  };
+
+  const handleColumnDrop = async (e: React.DragEvent, targetColId: number) => {
+    e.preventDefault();
+    const taskIdStr = e.dataTransfer.getData('text/plain');
+    if (!taskIdStr) return;
+    await moveTask(parseInt(taskIdStr), targetColId);
+  };
+
+  const handleTaskDrop = async (e: React.DragEvent, targetColId: number, targetIndex: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const taskIdStr = e.dataTransfer.getData('text/plain');
+    if (!taskIdStr) return;
+    await moveTask(parseInt(taskIdStr), targetColId, targetIndex);
   };
 
   // Helpers
@@ -268,7 +290,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
             className="glass-panel"
             style={styles.column}
             onDragOver={handleDragOver}
-            onDrop={(e) => handleDrop(e, col.id)}
+            onDrop={(e) => handleColumnDrop(e, col.id)}
           >
             {/* Column Header */}
             <div style={styles.columnHeader}>
@@ -282,13 +304,15 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
 
             {/* Task list container */}
             <div style={styles.taskList}>
-              {col.tasks.map((task) => (
+              {col.tasks.map((task, taskIndex) => (
                 <div
                   key={task.id}
                   className="glass-card"
                   style={styles.taskCard}
                   draggable
                   onDragStart={(e) => handleDragStart(e, task.id)}
+                  onDragOver={handleDragOver}
+                  onDrop={(e) => handleTaskDrop(e, col.id, taskIndex)}
                   onClick={() => setSelectedTask(task)}
                 >
                   <div style={styles.taskCardHeader}>
