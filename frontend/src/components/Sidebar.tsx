@@ -4,9 +4,20 @@ interface Board {
   id: number;
   name: string;
   description?: string;
+  context_id: number | null;
+}
+
+interface Context {
+  id: number;
+  name: string;
+  color?: string | null;
 }
 
 interface SidebarProps {
+  contexts: Context[];
+  activeContextId: number | null;
+  onSelectContext: (id: number | null) => void;
+  onCreateContext: (name: string) => Promise<void>;
   boards: Board[];
   activeBoardId: number | null;
   onSelectBoard: (id: number) => void;
@@ -20,6 +31,10 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
+  contexts,
+  activeContextId,
+  onSelectContext,
+  onCreateContext,
   boards,
   activeBoardId,
   onSelectBoard,
@@ -33,6 +48,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const [newBoardName, setNewBoardName] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
+  const [newContextName, setNewContextName] = useState('');
+  const [showAddContext, setShowAddContext] = useState(false);
 
   const handleCreateBoard = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,6 +58,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     setNewBoardName('');
     setShowAddForm(false);
     onCloseMobileSidebar?.();
+  };
+
+  const handleCreateContext = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newContextName.trim()) return;
+    await onCreateContext(newContextName);
+    setNewContextName('');
+    setShowAddContext(false);
   };
 
   return (
@@ -79,6 +104,70 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span style={styles.navIcon}>📊</span>
           <span>Estadísticas</span>
         </button>
+      </div>
+
+      {/* Contexts Section */}
+      <div style={styles.contextsContainer}>
+        <div style={styles.boardsHeader}>
+          <h3 style={styles.navLabel}>Contextos</h3>
+          <button
+            style={styles.addBoardBtn}
+            onClick={() => setShowAddContext(!showAddContext)}
+            title="Nuevo contexto"
+          >
+            {showAddContext ? '✕' : '＋'}
+          </button>
+        </div>
+
+        {showAddContext && (
+          <form
+            onSubmit={handleCreateContext}
+            style={styles.addForm}
+            className="animate-fade-in"
+          >
+            <input
+              type="text"
+              className="glass-input"
+              style={styles.addInput}
+              value={newContextName}
+              onChange={(e) => setNewContextName(e.target.value)}
+              placeholder="Ej. Trabajo, Familia..."
+              autoFocus
+              required
+            />
+            <button type="submit" className="glass-button" style={styles.addSubmit}>
+              Crear
+            </button>
+          </form>
+        )}
+
+        <div style={styles.contextPills}>
+          <button
+            className="glass-button-secondary"
+            style={{
+              ...styles.contextPill,
+              ...(activeContextId === null ? styles.activeContextPill : {}),
+            }}
+            onClick={() => onSelectContext(null)}
+          >
+            Todos
+          </button>
+          {contexts.map((ctx) => (
+            <button
+              key={ctx.id}
+              className="glass-button-secondary"
+              style={{
+                ...styles.contextPill,
+                ...(activeContextId === ctx.id ? styles.activeContextPill : {}),
+                ...(ctx.color ? { borderColor: ctx.color } : {}),
+              }}
+              onClick={() => onSelectContext(ctx.id)}
+              title={ctx.name}
+            >
+              {ctx.name}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Boards Section */}
@@ -232,6 +321,29 @@ const styles: Record<string, React.CSSProperties> = {
   },
   navIcon: {
     fontSize: '16px',
+  },
+  contextsContainer: {
+    display: 'flex',
+    flexDirection: 'column',
+    marginBottom: '20px',
+  },
+  contextPills: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '6px',
+    marginTop: '4px',
+  },
+  contextPill: {
+    padding: '6px 12px',
+    fontSize: '12px',
+    fontWeight: 500,
+    borderRadius: '999px',
+    cursor: 'pointer',
+  },
+  activeContextPill: {
+    background: 'rgba(99, 102, 241, 0.18)',
+    borderColor: 'rgba(99, 102, 241, 0.45)',
+    color: '#ffffff',
   },
   boardsContainer: {
     flex: 1,

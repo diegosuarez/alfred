@@ -7,10 +7,26 @@ import { Statistics } from './components/Statistics';
 import { QuickCapture } from './components/QuickCapture';
 import { api, getToken } from './services/api';
 
+interface Context {
+  id: number;
+  name: string;
+  color?: string | null;
+}
+
+interface Board {
+  id: number;
+  name: string;
+  description?: string;
+  context_id: number | null;
+}
+
 export const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userEmail, setUserEmail] = useState('');
-  const [boards, setBoards] = useState<any[]>([]);
+  const [contexts, setContexts] = useState<Context[]>([]);
+  // null = "All contexts"
+  const [activeContextId, setActiveContextId] = useState<number | null>(null);
+  const [boards, setBoards] = useState<Board[]>([]);
   const [activeBoardId, setActiveBoardId] = useState<number | null>(null);
   const [currentView, setCurrentView] = useState<'board' | 'stats'>('board');
   const [activeTask, setActiveTask] = useState<{ id: number; title: string } | null>(null);
@@ -50,24 +66,36 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const loadBoards = async () => {
+  const loadContextsAndBoards = async () => {
     try {
-      const boardsData = await api.getBoards();
-      setBoards(boardsData);
-      
-      if (boardsData.length > 0) {
-        // Default to first board if none selected
-        if (activeBoardId === null) {
-          setActiveBoardId(boardsData[0].id);
-        }
-      } else {
-        // Auto-create a default board on first login for smooth onboarding
-        const defaultBoard = await api.createBoard('🎯 Mi Primer Tablero', 'Organiza tus tareas aquí.');
-        setBoards([defaultBoard]);
-        setActiveBoardId(defaultBoard.id);
+      const [ctxData, boardsData] = await Promise.all([
+        api.getContexts(),
+        api.getBoards(),
+      ]);
+
+      let finalContexts: Context[] = ctxData;
+      let finalBoards: Board[] = boardsData;
+
+      if (finalBoards.length === 0) {
+        // Auto-create a default board on first login for smooth onboarding.
+        // The backend lazily creates a "General" context to attach it to.
+        const defaultBoard = await api.createBoard(
+          '🎯 Mi Primer Tablero',
+          'Organiza tus tareas aquí.'
+        );
+        finalBoards = [defaultBoard];
+        // Refresh contexts so we pick up the freshly-created "General".
+        finalContexts = await api.getContexts();
+      }
+
+      setContexts(finalContexts);
+      setBoards(finalBoards);
+
+      if (activeBoardId === null && finalBoards.length > 0) {
+        setActiveBoardId(finalBoards[0].id);
       }
     } catch (err) {
-      console.error('Error loading boards:', err);
+      console.error('Error loading contexts/boards:', err);
     }
   };
 
@@ -81,7 +109,7 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     if (isAuthenticated) {
-      loadBoards();
+      loadContextsAndBoards();
     }
   }, [isAuthenticated, refreshTrigger]);
 
@@ -95,6 +123,8 @@ export const App: React.FC = () => {
     api.logout();
     setIsAuthenticated(false);
     setUserEmail('');
+    setContexts([]);
+    setActiveContextId(null);
     setBoards([]);
     setActiveBoardId(null);
     setCurrentView('board');
@@ -103,10 +133,26 @@ export const App: React.FC = () => {
 
   const handleCreateBoard = async (name: string) => {
     try {
-      const newBoard = await api.createBoard(name);
+      // Scope new boards to the active context when one is selected; if
+      // we're on "All contexts", let the backend pick the default.
+      const newBoard = await api.createBoard(
+        name,
+        undefined,
+        activeContextId ?? undefined,
+      );
       setBoards([...boards, newBoard]);
       setActiveBoardId(newBoard.id);
       setCurrentView('board');
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleCreateContext = async (name: string) => {
+    try {
+      const created = await api.createContext(name);
+      setContexts([...contexts, created]);
+      setActiveContextId(created.id);
     } catch (err: any) {
       alert(err.message);
     }
@@ -123,6 +169,23 @@ export const App: React.FC = () => {
 
   if (!isAuthenticated) {
     return <Auth onLoginSuccess={handleLoginSuccess} />;
+  }
+
+  // Boards visible in the sidebar / list view, filtered by active context
+  // (null => "All contexts" => everything).
+  const visibleBoards =
+    activeContextId === null
+      ? boards
+      : boards.filter((b) => b.context_id === activeContextId);
+
+  // If the active board fell out of the current context filter, pick a new one.
+  if (activeBoardId !== null && !visibleBoards.some((b) => b.id === activeBoardId)) {
+    if (visibleBoards.length > 0) {
+      // Defer to avoid setState-during-render warning.
+      queueMicrotask(() => setActiveBoardId(visibleBoards[0].id));
+    } else {
+      queueMicrotask(() => setActiveBoardId(null));
+    }
   }
 
   // Dynamic mobile sidebar style
@@ -159,7 +222,11 @@ export const App: React.FC = () => {
       )}
 
       <Sidebar
-        boards={boards}
+        contexts={contexts}
+        activeContextId={activeContextId}
+        onSelectContext={(id) => setActiveContextId(id)}
+        onCreateContext={handleCreateContext}
+        boards={visibleBoards}
         activeBoardId={activeBoardId}
         onSelectBoard={(id) => setActiveBoardId(id)}
         currentView={currentView}

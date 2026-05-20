@@ -65,14 +65,43 @@ export const api = {
     setToken('');
   },
 
-  // Boards
-  getBoards: () => 
-    request('/boards'),
+  // Contexts
+  getContexts: () =>
+    request('/contexts'),
 
-  createBoard: (name: string, description?: string) => 
+  createContext: (name: string, color?: string) =>
+    request('/contexts', {
+      method: 'POST',
+      body: JSON.stringify({ name, color }),
+    }),
+
+  updateContext: (contextId: number, data: { name?: string; color?: string }) =>
+    request(`/contexts/${contextId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deleteContext: (contextId: number) =>
+    request(`/contexts/${contextId}`, {
+      method: 'DELETE',
+    }),
+
+  // Boards
+  getBoards: (contextId?: number) => {
+    const qs = contextId !== undefined ? `?context_id=${contextId}` : '';
+    return request(`/boards${qs}`);
+  },
+
+  createBoard: (name: string, description?: string, contextId?: number) =>
     request('/boards', {
       method: 'POST',
-      body: JSON.stringify({ name, description }),
+      body: JSON.stringify({ name, description, context_id: contextId }),
+    }),
+
+  updateBoardContext: (boardId: number, contextId: number) =>
+    request(`/boards/${boardId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ context_id: contextId }),
     }),
 
   getBoardDetail: (boardId: number) => 
