@@ -7,6 +7,14 @@ interface Tag {
   color?: string | null;
 }
 
+interface SubTask {
+  id: number;
+  task_id: number;
+  title: string;
+  completed: boolean;
+  position: number;
+}
+
 interface Task {
   id: number;
   title: string;
@@ -18,6 +26,7 @@ interface Task {
   board_id: number;
   total_focus_time: number;
   tags: Tag[];
+  subtasks: SubTask[];
 }
 
 interface Column {
@@ -63,6 +72,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [filterTagIds, setFilterTagIds] = useState<number[]>([]);
   const [newTagName, setNewTagName] = useState('');
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
 
   const fetchBoardDetails = async () => {
     try {
@@ -103,6 +113,54 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
       await api.createTag(newTagName.trim());
       setNewTagName('');
       await fetchTags();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const refreshSelectedTask = async (taskId: number) => {
+    try {
+      const data = await api.getBoardDetail(boardId);
+      setBoard(data);
+      for (const col of data.columns) {
+        const found = col.tasks.find((t: Task) => t.id === taskId);
+        if (found) {
+          setSelectedTask(found);
+          return;
+        }
+      }
+    } catch (err) {
+      console.error('Error refreshing task:', err);
+    }
+  };
+
+  const handleAddSubtask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedTask || !newSubtaskTitle.trim()) return;
+    try {
+      await api.createSubtask(selectedTask.id, newSubtaskTitle.trim());
+      setNewSubtaskTitle('');
+      await refreshSelectedTask(selectedTask.id);
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleToggleSubtask = async (sub: SubTask) => {
+    if (!selectedTask) return;
+    try {
+      await api.updateSubtask(sub.id, { completed: !sub.completed });
+      await refreshSelectedTask(selectedTask.id);
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleDeleteSubtask = async (subId: number) => {
+    if (!selectedTask) return;
+    try {
+      await api.deleteSubtask(subId);
+      await refreshSelectedTask(selectedTask.id);
     } catch (err: any) {
       alert(err.message);
     }
@@ -428,6 +486,12 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                         ⏱️ {formatFocusTime(task.total_focus_time)}
                       </span>
                     )}
+                    {task.subtasks.length > 0 && (
+                      <span style={styles.subtaskCounter}>
+                        ☑ {task.subtasks.filter((s) => s.completed).length}/
+                        {task.subtasks.length}
+                      </span>
+                    )}
                   </div>
                   <h4 style={styles.taskTitle}>{task.title}</h4>
                   {task.description && (
@@ -603,6 +667,69 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                     })}
                   />
                 </div>
+              </div>
+
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>
+                  Subtareas{' '}
+                  {selectedTask.subtasks.length > 0 && (
+                    <span style={styles.subtaskLabelCount}>
+                      ({selectedTask.subtasks.filter((s) => s.completed).length}
+                      /{selectedTask.subtasks.length})
+                    </span>
+                  )}
+                </label>
+                {selectedTask.subtasks.length > 0 && (
+                  <ul style={styles.subtaskList}>
+                    {selectedTask.subtasks.map((sub) => (
+                      <li key={sub.id} style={styles.subtaskItem}>
+                        <input
+                          type="checkbox"
+                          checked={sub.completed}
+                          onChange={() => handleToggleSubtask(sub)}
+                          style={styles.subtaskCheckbox}
+                        />
+                        <span
+                          style={{
+                            ...styles.subtaskTitle,
+                            ...(sub.completed ? styles.subtaskTitleDone : {}),
+                          }}
+                        >
+                          {sub.title}
+                        </span>
+                        <button
+                          type="button"
+                          style={styles.subtaskDelete}
+                          onClick={() => handleDeleteSubtask(sub.id)}
+                          title="Eliminar subtarea"
+                        >
+                          ✕
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <form
+                  onSubmit={handleAddSubtask}
+                  style={styles.subtaskForm}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <input
+                    type="text"
+                    className="glass-input"
+                    style={styles.subtaskInput}
+                    placeholder="Añadir subtarea..."
+                    value={newSubtaskTitle}
+                    onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                  />
+                  <button
+                    type="submit"
+                    className="glass-button-secondary"
+                    style={styles.subtaskAddBtn}
+                  >
+                    Añadir
+                  </button>
+                </form>
               </div>
 
               <div style={styles.inputGroup}>
@@ -1028,6 +1155,72 @@ const styles: Record<string, React.CSSProperties> = {
   },
   tagCreateBtn: {
     padding: '6px 12px',
+    fontSize: '12px',
+  },
+  subtaskCounter: {
+    fontSize: '10px',
+    color: 'var(--text-secondary)',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid var(--glass-border)',
+    borderRadius: '999px',
+    padding: '2px 8px',
+    letterSpacing: '0.3px',
+  },
+  subtaskLabelCount: {
+    color: 'var(--text-muted)',
+    fontSize: '12px',
+    fontWeight: 400,
+  },
+  subtaskList: {
+    listStyle: 'none',
+    padding: 0,
+    margin: '0 0 10px 0',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+  },
+  subtaskItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    padding: '8px 10px',
+    background: 'rgba(255,255,255,0.02)',
+    border: '1px solid var(--glass-border)',
+    borderRadius: 'var(--border-radius-sm)',
+  },
+  subtaskCheckbox: {
+    width: '16px',
+    height: '16px',
+    cursor: 'pointer',
+    accentColor: 'var(--accent-primary)',
+  },
+  subtaskTitle: {
+    flex: 1,
+    fontSize: '13px',
+    color: 'var(--text-primary)',
+  },
+  subtaskTitleDone: {
+    color: 'var(--text-muted)',
+    textDecoration: 'line-through',
+  },
+  subtaskDelete: {
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--text-muted)',
+    cursor: 'pointer',
+    fontSize: '12px',
+  },
+  subtaskForm: {
+    display: 'flex',
+    gap: '6px',
+  },
+  subtaskInput: {
+    flex: 1,
+    padding: '8px 10px',
+    fontSize: '13px',
+  },
+  subtaskAddBtn: {
+    padding: '8px 14px',
     fontSize: '12px',
   },
 };

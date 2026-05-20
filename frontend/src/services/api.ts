@@ -231,6 +231,27 @@ export const api = {
       body: JSON.stringify({ task_ids: taskIds, column_id: columnId }),
     }),
 
+  // Subtasks
+  createSubtask: (taskId: number, title: string) =>
+    request(`/tasks/${taskId}/subtasks`, {
+      method: 'POST',
+      body: JSON.stringify({ title }),
+    }),
+
+  updateSubtask: (
+    subtaskId: number,
+    data: { title?: string; completed?: boolean; position?: number },
+  ) =>
+    request(`/subtasks/${subtaskId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deleteSubtask: (subtaskId: number) =>
+    request(`/subtasks/${subtaskId}`, {
+      method: 'DELETE',
+    }),
+
   // Focus (Pomodoro)
   createFocusSession: (taskId: number, duration: number) => 
     request('/focus', {
