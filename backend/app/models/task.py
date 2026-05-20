@@ -22,6 +22,12 @@ class Task(Base):
     board = relationship("Board", back_populates="tasks")
     column = relationship("Column", back_populates="tasks")
     focus_sessions = relationship("FocusSession", back_populates="task", cascade="all, delete-orphan")
+    tags = relationship(
+        "Tag",
+        secondary="task_tags",
+        back_populates="tasks",
+        order_by="Tag.name",
+    )
 
     @property
     def total_focus_time(self) -> int:

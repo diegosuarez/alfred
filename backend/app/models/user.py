@@ -18,3 +18,4 @@ class User(Base):
     google_accounts = relationship(
         "GoogleAccount", back_populates="user", cascade="all, delete-orphan"
     )
+    tags = relationship("Tag", back_populates="user", cascade="all, delete-orphan")

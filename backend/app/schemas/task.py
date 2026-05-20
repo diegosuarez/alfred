@@ -2,6 +2,9 @@ from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from typing import Optional, List
 
+from app.schemas.tag import TagResponse
+
+
 class TaskBase(BaseModel):
     title: str
     description: Optional[str] = None
@@ -11,6 +14,7 @@ class TaskBase(BaseModel):
 
 class TaskCreate(TaskBase):
     column_id: int
+    tag_ids: List[int] = []
 
 class TaskUpdate(BaseModel):
     title: Optional[str] = None
@@ -19,6 +23,8 @@ class TaskUpdate(BaseModel):
     due_date: Optional[datetime] = None
     position: Optional[int] = None
     column_id: Optional[int] = None
+    # Absent => no change. Present (even if empty) => replace the full set.
+    tag_ids: Optional[List[int]] = None
 
 class TaskResponse(TaskBase):
     model_config = ConfigDict(from_attributes=True)
@@ -29,6 +35,7 @@ class TaskResponse(TaskBase):
     created_at: datetime
     updated_at: datetime
     total_focus_time: Optional[int] = 0
+    tags: List[TagResponse] = []
 
 class TaskReorder(BaseModel):
     task_ids: List[int]

@@ -6,6 +6,7 @@ from app.models.column import Column
 from app.models.task import Task
 from app.models.focus import FocusSession
 from app.models.google_account import GoogleAccount
+from app.models.tag import Tag, task_tags
 
 __all__ = [
     "Base",
@@ -16,4 +17,6 @@ __all__ = [
     "Task",
     "FocusSession",
     "GoogleAccount",
+    "Tag",
+    "task_tags",
 ]

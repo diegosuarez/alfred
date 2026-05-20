@@ -9,10 +9,31 @@ from app.api.deps import get_current_user
 from app.models.user import User
 from app.models.board import Board
 from app.models.column import Column
+from app.models.tag import Tag
 from app.models.task import Task
 from app.schemas.task import TaskCreate, TaskUpdate, TaskResponse, TaskReorder
 
 router = APIRouter(prefix="", tags=["tasks"])
+
+
+async def _fetch_caller_tags(
+    db: AsyncSession, user_id: int, tag_ids: List[int]
+) -> List[Tag]:
+    """Resolve a list of tag ids into Tag rows, rejecting ids that don't
+    belong to the caller. Returns the rows in the order requested."""
+    if not tag_ids:
+        return []
+    unique_ids = list(dict.fromkeys(tag_ids))
+    result = await db.execute(
+        select(Tag).filter(Tag.id.in_(unique_ids), Tag.user_id == user_id)
+    )
+    by_id = {t.id: t for t in result.scalars().all()}
+    if len(by_id) != len(unique_ids):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="One or more tag_ids are invalid",
+        )
+    return [by_id[i] for i in unique_ids]
 
 @router.post("/columns/{column_id}/tasks", response_model=TaskResponse)
 async def create_task(
@@ -39,6 +60,8 @@ async def create_task(
     last_position = pos_result.scalars().first()
     next_position = (last_position + 1) if last_position is not None else 0
     
+    tags = await _fetch_caller_tags(db, current_user.id, task_in.tag_ids)
+
     task = Task(
         title=task_in.title,
         description=task_in.description,
@@ -46,12 +69,18 @@ async def create_task(
         due_date=task_in.due_date,
         position=next_position,
         column_id=column_id,
-        board_id=col.board_id
+        board_id=col.board_id,
     )
+    if tags:
+        task.tags = tags
     db.add(task)
     await db.commit()
-    await db.refresh(task)
-    return task
+    # Re-fetch with tags eagerly loaded so the response serializes them
+    # without triggering a lazy SQL load under the async session.
+    refreshed = await db.execute(
+        select(Task).options(selectinload(Task.tags)).filter(Task.id == task.id)
+    )
+    return refreshed.scalars().first()
 
 @router.put("/tasks/{task_id}", response_model=TaskResponse)
 async def update_task(
@@ -62,7 +91,13 @@ async def update_task(
 ):
     # Verify task ownership and load dynamic relationships
     task_result = await db.execute(
-        select(Task).join(Board).filter(Task.id == task_id, Board.user_id == current_user.id).options(selectinload(Task.focus_sessions))
+        select(Task)
+        .join(Board)
+        .filter(Task.id == task_id, Board.user_id == current_user.id)
+        .options(
+            selectinload(Task.focus_sessions),
+            selectinload(Task.tags),
+        )
     )
     task = task_result.scalars().first()
     if not task:
@@ -94,7 +129,10 @@ async def update_task(
                 detail="Invalid target column"
             )
         task.column_id = task_in.column_id
-        
+
+    if task_in.tag_ids is not None:
+        task.tags = await _fetch_caller_tags(db, current_user.id, task_in.tag_ids)
+
     await db.commit()
     await db.refresh(task)
     return task
