@@ -24,6 +24,7 @@ interface SidebarProps {
   currentView: 'board' | 'stats';
   onChangeView: (view: 'board' | 'stats') => void;
   onCreateBoard: (name: string) => Promise<void>;
+  onOpenSettings: () => void;
   onLogout: () => void;
   userEmail: string;
   style?: React.CSSProperties;
@@ -41,6 +42,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentView,
   onChangeView,
   onCreateBoard,
+  onOpenSettings,
   onLogout,
   userEmail,
   style,
@@ -239,6 +241,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </span>
           </div>
         </div>
+        <button
+          className="glass-button-secondary"
+          style={styles.settingsBtn}
+          onClick={() => {
+            onOpenSettings();
+            onCloseMobileSidebar?.();
+          }}
+        >
+          ⚙️ Cuentas Google
+        </button>
         <button
           className="glass-button glass-button-danger"
           style={styles.logoutBtn}
@@ -466,6 +478,13 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '8px',
     fontSize: '13px',
     fontWeight: 500,
+  },
+  settingsBtn: {
+    width: '100%',
+    padding: '8px',
+    fontSize: '13px',
+    fontWeight: 500,
+    justifyContent: 'center',
   },
   closeMobileBtn: {
     position: 'absolute',

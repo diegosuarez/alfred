@@ -27,6 +27,9 @@ async function request(endpoint: string, options: RequestInit = {}) {
   const response = await fetch(`${API_URL}/api${endpoint}`, {
     ...options,
     headers,
+    // include credentials so the OAuth state cookie set by /google-accounts/connect
+    // is stored cross-origin and replayed on Google's callback redirect.
+    credentials: 'include',
   });
   
   if (response.status === 204) {
@@ -102,6 +105,28 @@ export const api = {
     request(`/boards/${boardId}`, {
       method: 'PUT',
       body: JSON.stringify({ context_id: contextId }),
+    }),
+
+  assignContextGoogleAccount: (contextId: number, googleAccountId: number | null) =>
+    // The backend uses 0 as a sentinel for "detach".
+    request(`/contexts/${contextId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ google_account_id: googleAccountId === null ? 0 : googleAccountId }),
+    }),
+
+  // Google accounts (connected resources, distinct from Sign-in-with-Google)
+  getGoogleAccounts: () =>
+    request('/google-accounts'),
+
+  connectGoogleAccount: (extraScopes: string[] = []) =>
+    request('/google-accounts/connect', {
+      method: 'POST',
+      body: JSON.stringify({ extra_scopes: extraScopes }),
+    }),
+
+  disconnectGoogleAccount: (accountId: number) =>
+    request(`/google-accounts/${accountId}`, {
+      method: 'DELETE',
     }),
 
   getBoardDetail: (boardId: number) => 

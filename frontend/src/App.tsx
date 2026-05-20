@@ -5,12 +5,14 @@ import { KanbanBoard } from './components/KanbanBoard';
 import { FocusTimer } from './components/FocusTimer';
 import { Statistics } from './components/Statistics';
 import { QuickCapture } from './components/QuickCapture';
+import { GoogleSettings } from './components/GoogleSettings';
 import { api, getToken, setToken } from './services/api';
 
 interface Context {
   id: number;
   name: string;
   color?: string | null;
+  google_account_id?: number | null;
 }
 
 interface Board {
@@ -37,6 +39,9 @@ export const App: React.FC = () => {
 
   // Triggers reload of active components when a task is captured globally
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  // Google settings modal
+  const [showSettings, setShowSettings] = useState(false);
 
   // Decodes JWT payload to extract user metadata
   const parseUserEmail = (token: string) => {
@@ -105,6 +110,7 @@ export const App: React.FC = () => {
     const url = new URL(window.location.href);
     const oauthToken = url.searchParams.get('token');
     const oauthError = url.searchParams.get('oauth_error');
+    const googleConnected = url.searchParams.get('google_connected');
     if (oauthToken) {
       setToken(oauthToken);
       url.searchParams.delete('token');
@@ -113,6 +119,12 @@ export const App: React.FC = () => {
     if (oauthError) {
       alert(`Google sign-in failed: ${oauthError}`);
       url.searchParams.delete('oauth_error');
+      window.history.replaceState({}, '', url.toString());
+    }
+    if (googleConnected) {
+      // Surface the settings modal so the user sees the freshly-attached account.
+      setShowSettings(true);
+      url.searchParams.delete('google_connected');
       window.history.replaceState({}, '', url.toString());
     }
 
@@ -171,6 +183,15 @@ export const App: React.FC = () => {
       setActiveContextId(created.id);
     } catch (err: any) {
       alert(err.message);
+    }
+  };
+
+  const reloadContexts = async () => {
+    try {
+      const fresh = await api.getContexts();
+      setContexts(fresh);
+    } catch (err) {
+      console.error('Error reloading contexts:', err);
     }
   };
 
@@ -248,6 +269,7 @@ export const App: React.FC = () => {
         currentView={currentView}
         onChangeView={(view) => setCurrentView(view)}
         onCreateBoard={handleCreateBoard}
+        onOpenSettings={() => setShowSettings(true)}
         onLogout={handleLogout}
         userEmail={userEmail}
         style={mobileSidebarStyle}
@@ -279,6 +301,14 @@ export const App: React.FC = () => {
           activeTask={activeTask}
           onClearActiveTask={() => setActiveTask(null)}
           onSessionLogged={handleTaskCaptured}
+        />
+      )}
+
+      {showSettings && (
+        <GoogleSettings
+          contexts={contexts}
+          onClose={() => setShowSettings(false)}
+          onContextsRefresh={reloadContexts}
         />
       )}
     </div>
