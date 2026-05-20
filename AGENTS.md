@@ -48,11 +48,13 @@ backend/app/
     deps.py          get_current_user (OAuth2PasswordBearer)
     contexts.py      CRUD for Contexts; google_account_id assignment
     google_accounts.py  /list, /connect (incremental OAuth), DELETE
+    tags.py          User-scoped Tag CRUD
     boards.py        CRUD; create_board seeds 3 default columns + default Context
     columns.py       CRUD + /boards/{id}/columns/reorder
     tasks.py         CRUD + /columns/{id}/tasks/reorder
     focus.py         POST /focus, GET /focus/stats (7-day series)
-  models/            SQLAlchemy ORM: User, Context, GoogleAccount, Board, Column, Task, FocusSession
+  models/            SQLAlchemy ORM: User, Context, GoogleAccount, Tag,
+                     Board, Column, Task, FocusSession + task_tags M2M
   schemas/           Pydantic v2 request/response models
 tests/               pytest suite, in-memory SQLite
 
@@ -80,6 +82,8 @@ systemd/
 User 1─* GoogleAccount        (personal / work / ...)
 User 1─* Context              (Trabajo, Personal, Familia, ...)
    Context *─1 GoogleAccount  (optional, multiple contexts may share one)
+User 1─* Tag                  (urgent, blocked, ..., user-scoped)
+   Task *─* Tag               (task_tags join table)
 Context 1─* Board 1─* Column 1─* Task 1─* FocusSession
                             └────────* Task (also direct FK board_id)
 ```
@@ -94,6 +98,11 @@ Context 1─* Board 1─* Column 1─* Task 1─* FocusSession
   for login). Detaching a context from a Google account uses the
   sentinel value `0` in the update body, since JSON cannot send a
   "set to null" distinct from "absent".
+- Tags are user-scoped, not context-scoped. "Urgente" means urgente
+  in every context — filters and per-context views do the slicing.
+- TaskUpdate.tag_ids has 3-state semantics: absent means no change,
+  `[]` clears all tags, a non-empty list replaces the full set.
+  TaskCreate.tag_ids defaults to `[]`.
 
 - `Task` has FKs to both `column_id` and `board_id`. The board FK is
   redundant for ownership checks but used by joins for cross-column
@@ -161,7 +170,7 @@ The dev server picks up `VITE_API_URL` (default `http://localhost:30000`).
 
 ```bash
 cd backend
-uv run pytest        # 54 tests, in-memory SQLite, ~20s
+uv run pytest        # 62 tests, in-memory SQLite, ~25s
 ```
 
 Tests use `httpx.AsyncClient` + `ASGITransport`, so the FastAPI
