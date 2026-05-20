@@ -3,7 +3,7 @@ import { api } from '../services/api';
 
 interface DailyStat {
   date: string;
-  total_seconds: int;
+  total_seconds: number;
 }
 
 interface StatsData {
