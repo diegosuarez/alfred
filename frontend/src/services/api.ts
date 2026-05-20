@@ -129,6 +129,18 @@ export const api = {
       method: 'DELETE',
     }),
 
+  // Personal Access Tokens
+  getPats: () => request('/pats'),
+
+  createPat: (name: string, expiresAt?: string) =>
+    request('/pats', {
+      method: 'POST',
+      body: JSON.stringify({ name, expires_at: expiresAt }),
+    }),
+
+  revokePat: (patId: number) =>
+    request(`/pats/${patId}`, { method: 'DELETE' }),
+
   getBoardDetail: (boardId: number) => 
     request(`/boards/${boardId}`),
 

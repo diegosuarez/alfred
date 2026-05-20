@@ -6,6 +6,7 @@ import { FocusTimer } from './components/FocusTimer';
 import { Statistics } from './components/Statistics';
 import { QuickCapture } from './components/QuickCapture';
 import { GoogleSettings } from './components/GoogleSettings';
+import { TokensSettings } from './components/TokensSettings';
 import { api, getToken, setToken } from './services/api';
 
 interface Context {
@@ -42,6 +43,8 @@ export const App: React.FC = () => {
 
   // Google settings modal
   const [showSettings, setShowSettings] = useState(false);
+  // PAT (Personal Access Tokens) modal
+  const [showTokens, setShowTokens] = useState(false);
 
   // Decodes JWT payload to extract user metadata
   const parseUserEmail = (token: string) => {
@@ -270,6 +273,7 @@ export const App: React.FC = () => {
         onChangeView={(view) => setCurrentView(view)}
         onCreateBoard={handleCreateBoard}
         onOpenSettings={() => setShowSettings(true)}
+        onOpenTokens={() => setShowTokens(true)}
         onLogout={handleLogout}
         userEmail={userEmail}
         style={mobileSidebarStyle}
@@ -311,6 +315,8 @@ export const App: React.FC = () => {
           onContextsRefresh={reloadContexts}
         />
       )}
+
+      {showTokens && <TokensSettings onClose={() => setShowTokens(false)} />}
     </div>
   );
 };

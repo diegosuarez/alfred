@@ -25,6 +25,7 @@ interface SidebarProps {
   onChangeView: (view: 'board' | 'stats') => void;
   onCreateBoard: (name: string) => Promise<void>;
   onOpenSettings: () => void;
+  onOpenTokens: () => void;
   onLogout: () => void;
   userEmail: string;
   style?: React.CSSProperties;
@@ -43,6 +44,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onChangeView,
   onCreateBoard,
   onOpenSettings,
+  onOpenTokens,
   onLogout,
   userEmail,
   style,
@@ -250,6 +252,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
           }}
         >
           ⚙️ Cuentas Google
+        </button>
+        <button
+          className="glass-button-secondary"
+          style={styles.settingsBtn}
+          onClick={() => {
+            onOpenTokens();
+            onCloseMobileSidebar?.();
+          }}
+        >
+          🔑 Tokens API
         </button>
         <button
           className="glass-button glass-button-danger"
