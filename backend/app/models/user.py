@@ -8,9 +8,13 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
+    # Nullable: a user who logs in only via Google has no local password.
+    hashed_password = Column(String, nullable=True)
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
     boards = relationship("Board", back_populates="user", cascade="all, delete-orphan")
     contexts = relationship("Context", back_populates="user", cascade="all, delete-orphan")
+    google_accounts = relationship(
+        "GoogleAccount", back_populates="user", cascade="all, delete-orphan"
+    )

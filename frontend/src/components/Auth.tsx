@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { api } from '../services/api';
+import { api, API_URL } from '../services/api';
 
 interface AuthProps {
   onLoginSuccess: () => void;
@@ -74,6 +74,19 @@ export const Auth: React.FC<AuthProps> = ({ onLoginSuccess }) => {
             {loading ? 'Procesando...' : isRegister ? 'Registrarse' : 'Entrar'}
           </button>
         </form>
+
+        <div style={styles.divider}>
+          <span style={styles.dividerText}>o</span>
+        </div>
+
+        <a
+          href={`${API_URL}/api/auth/google/login`}
+          style={styles.googleBtn}
+          className="glass-button-secondary"
+        >
+          <span style={styles.googleIcon}>G</span>
+          <span>Entrar con Google</span>
+        </a>
 
         <div style={styles.switchText}>
           {isRegister ? '¿Ya tienes una cuenta?' : '¿No tienes una cuenta?'}{' '}
@@ -153,6 +166,47 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '0.85rem',
     marginBottom: '20px',
     textAlign: 'center',
+  },
+  divider: {
+    display: 'flex',
+    alignItems: 'center',
+    margin: '20px 0',
+    color: 'var(--text-muted)',
+    fontSize: '0.8rem',
+    textAlign: 'center',
+    position: 'relative',
+  },
+  dividerText: {
+    background: 'transparent',
+    padding: '0 12px',
+    margin: '0 auto',
+    textTransform: 'uppercase',
+    letterSpacing: '1px',
+  },
+  googleBtn: {
+    width: '100%',
+    padding: '12px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '10px',
+    textDecoration: 'none',
+    fontWeight: 500,
+    fontSize: '14px',
+    cursor: 'pointer',
+    borderRadius: 'var(--border-radius-sm)',
+  },
+  googleIcon: {
+    width: '20px',
+    height: '20px',
+    borderRadius: '50%',
+    background: 'linear-gradient(135deg, #4285F4, #DB4437 60%, #F4B400)',
+    color: '#ffffff',
+    fontWeight: 700,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '12px',
   },
   switchText: {
     marginTop: '24px',

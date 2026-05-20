@@ -5,7 +5,7 @@ import { KanbanBoard } from './components/KanbanBoard';
 import { FocusTimer } from './components/FocusTimer';
 import { Statistics } from './components/Statistics';
 import { QuickCapture } from './components/QuickCapture';
-import { api, getToken } from './services/api';
+import { api, getToken, setToken } from './services/api';
 
 interface Context {
   id: number;
@@ -100,6 +100,22 @@ export const App: React.FC = () => {
   };
 
   useEffect(() => {
+    // Pick up a JWT handed back by the Google OAuth callback before
+    // checking localStorage, so a fresh login wins over a stale token.
+    const url = new URL(window.location.href);
+    const oauthToken = url.searchParams.get('token');
+    const oauthError = url.searchParams.get('oauth_error');
+    if (oauthToken) {
+      setToken(oauthToken);
+      url.searchParams.delete('token');
+      window.history.replaceState({}, '', url.toString());
+    }
+    if (oauthError) {
+      alert(`Google sign-in failed: ${oauthError}`);
+      url.searchParams.delete('oauth_error');
+      window.history.replaceState({}, '', url.toString());
+    }
+
     const token = getToken();
     if (token) {
       setIsAuthenticated(true);
