@@ -15,9 +15,14 @@ import es.tcdn.diego.alfred.auth.LoginScreen
 import es.tcdn.diego.alfred.data.AlfredConfig
 import es.tcdn.diego.alfred.data.SettingsRepository
 import es.tcdn.diego.alfred.ui.boards.BoardsScreen
+import es.tcdn.diego.alfred.ui.focus.FocusTimerScreen
+import es.tcdn.diego.alfred.ui.profile.ProfileScreen
 import es.tcdn.diego.alfred.ui.settings.SettingsScreen
+import es.tcdn.diego.alfred.ui.stats.StatsScreen
 import es.tcdn.diego.alfred.ui.tasks.TaskDetailScreen
 import es.tcdn.diego.alfred.ui.tasks.TasksScreen
+import java.net.URLDecoder
+import java.net.URLEncoder
 
 object Routes {
     const val LOGIN = "login"
@@ -25,6 +30,9 @@ object Routes {
     const val TASKS = "tasks/{boardId}"
     const val TASK_DETAIL = "task/{taskId}"
     const val SETTINGS = "settings"
+    const val STATS = "stats"
+    const val PROFILE = "profile"
+    const val FOCUS = "focus/{taskId}/{title}"
 }
 
 @Composable
@@ -58,10 +66,10 @@ fun AlfredNavHost(
         composable(Routes.BOARDS) {
             BoardsScreen(
                 config = config,
-                onPickBoard = { boardId ->
-                    nav.navigate("tasks/$boardId")
-                },
+                onPickBoard = { boardId -> nav.navigate("tasks/$boardId") },
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
+                onOpenStats = { nav.navigate(Routes.STATS) },
+                onOpenProfile = { nav.navigate(Routes.PROFILE) },
             )
         }
         composable(
@@ -85,18 +93,40 @@ fun AlfredNavHost(
                 config = config,
                 taskId = taskId,
                 onBack = { nav.popBackStack() },
+                onLaunchFocus = { tid, title ->
+                    val enc = URLEncoder.encode(title, "UTF-8")
+                    nav.navigate("focus/$tid/$enc")
+                },
             )
+        }
+        composable(
+            Routes.FOCUS,
+            arguments = listOf(
+                navArgument("taskId") { type = NavType.IntType },
+                navArgument("title") { type = NavType.StringType },
+            ),
+        ) { entry ->
+            val taskId = entry.arguments?.getInt("taskId") ?: return@composable
+            val rawTitle = entry.arguments?.getString("title") ?: ""
+            FocusTimerScreen(
+                config = config,
+                taskId = taskId,
+                taskTitle = URLDecoder.decode(rawTitle, "UTF-8"),
+                onBack = { nav.popBackStack() },
+            )
+        }
+        composable(Routes.STATS) {
+            StatsScreen(config = config, onBack = { nav.popBackStack() })
+        }
+        composable(Routes.PROFILE) {
+            ProfileScreen(config = config, onBack = { nav.popBackStack() })
         }
         composable(Routes.SETTINGS) {
             SettingsScreen(
                 config = config,
                 settings = settings,
                 onBack = { nav.popBackStack() },
-                onSignedOut = {
-                    nav.navigate(Routes.LOGIN) {
-                        popUpTo(0)
-                    }
-                },
+                onSignedOut = { nav.navigate(Routes.LOGIN) { popUpTo(0) } },
             )
         }
     }

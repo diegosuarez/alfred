@@ -91,7 +91,13 @@ def send_push(
     endpoint: str, p256dh: str, auth: str, payload: dict
 ) -> tuple[bool, Optional[int]]:
     """Send a Web Push to one subscription. Returns (ok, status_code).
-    On 404/410 the caller should evict the dead subscription from the DB."""
+    On 404/410 the caller should evict the dead subscription from the DB.
+
+    Catches Exception broadly: pywebpush only raises WebPushException
+    for explicit HTTP failures; transport-level issues (TLS, DNS,
+    connection reset) bubble up as requests/urllib3 exceptions and used
+    to kill the dispatch loop. A failed send for one subscription must
+    not prevent the others — including FCM — from getting their turn."""
     keys = get_vapid_keys()
     try:
         webpush(
@@ -109,3 +115,11 @@ def send_push(
         status_code = exc.response.status_code if exc.response is not None else None
         log.warning("Web Push failed: %s (status=%s)", exc, status_code)
         return False, status_code
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "Web Push transport error for %s: %s: %s",
+            endpoint[:60] + "…",
+            exc.__class__.__name__,
+            exc,
+        )
+        return False, None

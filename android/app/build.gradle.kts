@@ -32,7 +32,7 @@ android {
         // or via local.properties (alfred.apiUrl=...).
         val defaultApi = localProps.getProperty("alfred.apiUrl")
             ?: project.findProperty("alfredApi") as String?
-            ?: "https://alfred.example.com"
+            ?: "https://alfred.diego.tcdn.es"
         buildConfigField("String", "DEFAULT_API_URL", "\"$defaultApi\"")
 
         // Web OAuth client id of the Google project that backs the

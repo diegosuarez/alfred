@@ -383,9 +383,20 @@ async def _dispatch_due_reminders() -> None:
                 dead_subs: list[PushSubscription] = []
                 delivered = False
                 for sub in subs:
-                    ok, status_code = push_helper.send_push(
-                        sub.endpoint, sub.p256dh, sub.auth, payload
-                    )
+                    try:
+                        ok, status_code = push_helper.send_push(
+                            sub.endpoint, sub.p256dh, sub.auth, payload
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        # Belt-and-braces: send_push is supposed to swallow
+                        # transport errors itself, but keep going either way
+                        # so FCM still gets its chance.
+                        log.warning(
+                            "Web Push helper raised %s for sub %s; skipping",
+                            exc.__class__.__name__,
+                            sub.id,
+                        )
+                        ok, status_code = False, None
                     if ok:
                         delivered = True
                     elif status_code in (404, 410):
