@@ -682,12 +682,13 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     },
   ) => {
     const draggable = opts.dropIndex !== null;
-    // Priority drives the card border colour. Medium stays default.
-    const priorityBorder =
+    // Priority drives the card background tint. Medium keeps the default
+    // glass surface; high gets a soft red, low gets a soft blue.
+    const priorityBackground =
       task.priority === 'high'
-        ? 'rgba(239, 68, 68, 0.65)'
+        ? 'rgba(239, 68, 68, 0.15)'
         : task.priority === 'low'
-        ? 'rgba(59, 130, 246, 0.55)'
+        ? 'rgba(59, 130, 246, 0.13)'
         : undefined;
     return (
       <div
@@ -696,7 +697,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
           ...styles.taskCard,
           ...(opts.isChild ? styles.childTaskCard : {}),
           ...(task.completed ? styles.completedTaskCard : {}),
-          ...(priorityBorder ? { borderColor: priorityBorder } : {}),
+          ...(priorityBackground ? { background: priorityBackground } : {}),
         }}
         draggable={draggable}
         onDragStart={draggable ? (e) => handleDragStart(e, task.id) : undefined}
