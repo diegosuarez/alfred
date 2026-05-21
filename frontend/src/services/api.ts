@@ -260,12 +260,19 @@ export const api = {
       assignee_ids?: number[];
       completed?: boolean;
       parent_task_id?: number;
+      archived?: boolean;
     },
   ) =>
     request(`/tasks/${taskId}`, {
       method: 'PUT',
       body: JSON.stringify(taskData),
     }),
+
+  archiveAllInColumn: (columnId: number) =>
+    request(`/columns/${columnId}/archive-all`, { method: 'POST' }),
+
+  getArchivedInColumn: (columnId: number) =>
+    request(`/columns/${columnId}/archived-tasks`),
 
   deleteTask: (taskId: number) => 
     request(`/tasks/${taskId}`, {

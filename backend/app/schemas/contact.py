@@ -7,7 +7,9 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 class ContactBase(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     email: Optional[EmailStr] = None
-    image_url: Optional[str] = Field(default=None, max_length=500)
+    # Google photo URLs are pre-signed and can exceed 1k chars, so we
+    # use a generous upper bound rather than a tight one.
+    image_url: Optional[str] = Field(default=None, max_length=2048)
     is_favorite: bool = False
 
 
@@ -18,7 +20,9 @@ class ContactCreate(ContactBase):
 class ContactUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=120)
     email: Optional[EmailStr] = None
-    image_url: Optional[str] = Field(default=None, max_length=500)
+    # Google photo URLs are pre-signed and can exceed 1k chars, so we
+    # use a generous upper bound rather than a tight one.
+    image_url: Optional[str] = Field(default=None, max_length=2048)
     is_favorite: Optional[bool] = None
 
 

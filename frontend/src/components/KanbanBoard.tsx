@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
 import { Avatar } from './Avatar';
 import { ContactPicker, type Contact } from './ContactPicker';
+import { ArchivedTasksModal } from './ArchivedTasksModal';
 
 interface Tag {
   id: number;
@@ -72,6 +73,8 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
   const [newTagName, setNewTagName] = useState('');
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [allContacts, setAllContacts] = useState<Contact[]>([]);
+  const [archiveModalColumn, setArchiveModalColumn] = useState<{ id: number; name: string } | null>(null);
+  const [columnMenuOpenId, setColumnMenuOpenId] = useState<number | null>(null);
 
   const fetchBoardDetails = async () => {
     try {
@@ -108,6 +111,15 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
     fetchTags();
     fetchContacts();
   }, [boardId]);
+
+  // Close any open column kebab menu on any document click that isn't
+  // inside the menu itself.
+  useEffect(() => {
+    if (columnMenuOpenId === null) return;
+    const close = () => setColumnMenuOpenId(null);
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [columnMenuOpenId]);
 
   const toggleFilterTag = (tagId: number) => {
     setFilterTagIds((prev) =>
@@ -279,6 +291,36 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
       });
       setSelectedTask(updated);
       fetchBoardDetails();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleArchiveTask = async () => {
+    if (!selectedTask) return;
+    try {
+      await api.updateTask(selectedTask.id, { archived: true });
+      setSelectedTask(null);
+      fetchBoardDetails();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleArchiveAllInColumn = async (colId: number, colName: string) => {
+    if (
+      !confirm(
+        `¿Archivar todas las tareas de "${colName}"? Las podrás recuperar desde "Ver archivadas".`,
+      )
+    )
+      return;
+    try {
+      const result = await api.archiveAllInColumn(colId);
+      setColumnMenuOpenId(null);
+      fetchBoardDetails();
+      if (result.archived === 0) {
+        alert('No hay tareas activas que archivar en esta lista.');
+      }
     } catch (err: any) {
       alert(err.message);
     }
@@ -621,9 +663,46 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
               <h3 style={styles.columnTitle}>
                 {col.name} <span style={styles.taskCount}>{col.tasks.length}</span>
               </h3>
-              <button style={styles.colDeleteBtn} onClick={() => handleDeleteColumn(col.id)}>
-                ✕
-              </button>
+              <div style={styles.colHeaderActions}>
+                <div style={styles.colMenuWrapper}>
+                  <button
+                    style={styles.colDeleteBtn}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setColumnMenuOpenId(columnMenuOpenId === col.id ? null : col.id);
+                    }}
+                    title="Opciones de la lista"
+                  >
+                    ⋯
+                  </button>
+                  {columnMenuOpenId === col.id && (
+                    <div
+                      className="glass-panel"
+                      style={styles.colMenu}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        style={styles.colMenuItem}
+                        onClick={() => handleArchiveAllInColumn(col.id, col.name)}
+                      >
+                        📦 Archivar todas
+                      </button>
+                      <button
+                        style={styles.colMenuItem}
+                        onClick={() => {
+                          setColumnMenuOpenId(null);
+                          setArchiveModalColumn({ id: col.id, name: col.name });
+                        }}
+                      >
+                        🗂️ Ver archivadas
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <button style={styles.colDeleteBtn} onClick={() => handleDeleteColumn(col.id)} title="Borrar lista">
+                  ✕
+                </button>
+              </div>
             </div>
 
             {/* Task list container */}
@@ -727,6 +806,14 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                 ＋ Añadir Tarea
               </button>
             )}
+
+            <button
+              style={styles.archivedLink}
+              onClick={() => setArchiveModalColumn({ id: col.id, name: col.name })}
+              title="Ver tareas archivadas de esta lista"
+            >
+              Ver archivadas
+            </button>
           </div>
         ))}
       </div>
@@ -991,17 +1078,36 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
 
               <div style={styles.modalActions}>
                 <span style={styles.autosaveHint}>Los cambios se guardan automáticamente</span>
-                <button
-                  type="button"
-                  className="glass-button glass-button-danger"
-                  onClick={() => handleDeleteTask(selectedTask.id)}
-                >
-                  Eliminar Tarea
-                </button>
+                <div style={styles.modalDangerGroup}>
+                  <button
+                    type="button"
+                    className="glass-button glass-button-secondary"
+                    onClick={handleArchiveTask}
+                    title="Archivar tarea"
+                  >
+                    📦 Archivar
+                  </button>
+                  <button
+                    type="button"
+                    className="glass-button glass-button-danger"
+                    onClick={() => handleDeleteTask(selectedTask.id)}
+                  >
+                    Eliminar Tarea
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         </div>
+      )}
+
+      {archiveModalColumn && (
+        <ArchivedTasksModal
+          columnId={archiveModalColumn.id}
+          columnName={archiveModalColumn.name}
+          onClose={() => setArchiveModalColumn(null)}
+          onChanged={fetchBoardDetails}
+        />
       )}
     </div>
   );
@@ -1408,6 +1514,54 @@ const styles: Record<string, React.CSSProperties> = {
   taskTitleDone: {
     textDecoration: 'line-through',
     color: 'var(--text-muted)',
+  },
+  colHeaderActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '2px',
+  },
+  colMenuWrapper: {
+    position: 'relative',
+  },
+  colMenu: {
+    position: 'absolute',
+    top: 'calc(100% + 4px)',
+    right: 0,
+    zIndex: 50,
+    padding: '4px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '2px',
+    minWidth: '180px',
+  },
+  colMenuItem: {
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--text-primary)',
+    textAlign: 'left',
+    padding: '8px 12px',
+    fontSize: '12px',
+    cursor: 'pointer',
+    borderRadius: 'var(--border-radius-sm)',
+  },
+  archivedLink: {
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--text-muted)',
+    cursor: 'pointer',
+    fontSize: '11px',
+    padding: '6px 0 0 0',
+    textAlign: 'center',
+    width: '100%',
+    fontStyle: 'italic',
+    textDecoration: 'underline dotted',
+    textDecorationColor: 'rgba(255,255,255,0.15)',
+    textUnderlineOffset: '3px',
+  },
+  modalDangerGroup: {
+    display: 'flex',
+    gap: '8px',
+    alignItems: 'center',
   },
   peopleRow: {
     display: 'flex',
