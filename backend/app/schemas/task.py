@@ -95,6 +95,11 @@ class ArchiveResultResponse(BaseModel):
     archived: int
 
 
+class MoveTaskRequest(BaseModel):
+    board_id: int
+    column_id: int
+
+
 class TaskReorder(BaseModel):
     task_ids: List[int]
     column_id: int

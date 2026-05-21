@@ -18,6 +18,7 @@ from app.models.task import Task
 from app.models.user import User
 from app.schemas.task import (
     ArchiveResultResponse,
+    MoveTaskRequest,
     TaskCreate,
     TaskReorder,
     TaskResponse,
@@ -395,6 +396,92 @@ async def delete_task(
     await db.delete(task)
     await db.commit()
     return None
+
+
+@router.post("/tasks/{task_id}/move", response_model=TaskResponse)
+async def move_task_to_board(
+    task_id: int,
+    body: MoveTaskRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Move a task (and the whole subtree underneath it) to a different
+    board *within the same context*. Cross-context moves are refused so
+    the per-context invariants (tags, contacts, Google account
+    scoping) keep holding."""
+    task = await _owned_task(db, current_user.id, task_id)
+
+    # Source board — needed to read context_id.
+    source_result = await db.execute(
+        select(Board).filter(Board.id == task.board_id)
+    )
+    source_board = source_result.scalars().first()
+    assert source_board is not None  # task ownership already implied it
+
+    target_result = await db.execute(
+        select(Board).filter(
+            Board.id == body.board_id, Board.user_id == current_user.id
+        )
+    )
+    target_board = target_result.scalars().first()
+    if not target_board:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Target board not found",
+        )
+    if target_board.context_id != source_board.context_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cross-context moves are not allowed",
+        )
+    if target_board.id == source_board.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Task is already on this board",
+        )
+
+    col_result = await db.execute(
+        select(Column).filter(
+            Column.id == body.column_id, Column.board_id == target_board.id
+        )
+    )
+    target_col = col_result.scalars().first()
+    if not target_col:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Target column does not belong to target board",
+        )
+
+    # Top-level position in the destination column — append at the end.
+    pos_result = await db.execute(
+        select(Task.position)
+        .filter(
+            Task.column_id == target_col.id,
+            Task.parent_task_id.is_(None),
+        )
+        .order_by(Task.position.desc())
+    )
+    last_pos = pos_result.scalars().first()
+    next_pos = (last_pos + 1) if last_pos is not None else 0
+
+    # Move the parent first, then cascade board_id + column_id to every
+    # descendant in one shot. Their position-within-parent stays as is.
+    task.board_id = target_board.id
+    task.column_id = target_col.id
+    task.position = next_pos
+    await db.flush()
+
+    descendant_ids = await _collect_descendant_ids(db, [task.id])
+    others = [i for i in descendant_ids if i != task.id]
+    if others:
+        await db.execute(
+            sql_update(Task)
+            .where(Task.id.in_(others))
+            .values(board_id=target_board.id, column_id=target_col.id)
+        )
+
+    await db.commit()
+    return await _hydrated_task(db, task.id)
 
 
 @router.post(
