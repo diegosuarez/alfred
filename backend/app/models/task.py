@@ -31,6 +31,11 @@ class Task(Base):
     # it but typically rely on column-based status.
     completed = Column(Boolean, nullable=False, default=False, server_default="0")
 
+    # NULL while the task is "live" on the kanban. When set, the task is
+    # archived: hidden from the board detail and only surfaced via the
+    # column's archived-tasks view.
+    archived_at = Column(DateTime, nullable=True, index=True)
+
     # Who asked for the task. SET NULL on contact delete so the task
     # survives and just becomes "no requester".
     requester_id = Column(

@@ -34,6 +34,9 @@ class TaskUpdate(BaseModel):
     position: Optional[int] = None
     column_id: Optional[int] = None
     completed: Optional[bool] = None
+    # Setting to True archives the task and (recursively) its children.
+    # Setting to False restores it and its children.
+    archived: Optional[bool] = None
     # Use 0 as the "detach from parent" sentinel (same trick we use for
     # context.google_account_id) — JSON can't distinguish absent from null
     # in our naive update flow.
@@ -58,6 +61,7 @@ class TaskChildResponse(TaskBase):
     board_id: int
     parent_task_id: Optional[int] = None
     completed: bool = False
+    archived_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
     total_focus_time: Optional[int] = 0
@@ -74,6 +78,7 @@ class TaskResponse(TaskBase):
     board_id: int
     parent_task_id: Optional[int] = None
     completed: bool = False
+    archived_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
     total_focus_time: Optional[int] = 0
@@ -81,6 +86,10 @@ class TaskResponse(TaskBase):
     requester: Optional[ContactResponse] = None
     assignees: List[ContactResponse] = []
     children: List[TaskChildResponse] = []
+
+
+class ArchiveResultResponse(BaseModel):
+    archived: int
 
 
 class TaskReorder(BaseModel):

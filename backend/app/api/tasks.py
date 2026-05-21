@@ -1,9 +1,12 @@
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
+
+from app.core.time import utcnow
 
 from app.api.deps import get_current_user
 from app.database import get_db
@@ -13,7 +16,13 @@ from app.models.contact import Contact
 from app.models.tag import Tag
 from app.models.task import Task
 from app.models.user import User
-from app.schemas.task import TaskCreate, TaskReorder, TaskResponse, TaskUpdate
+from app.schemas.task import (
+    ArchiveResultResponse,
+    TaskCreate,
+    TaskReorder,
+    TaskResponse,
+    TaskUpdate,
+)
 
 router = APIRouter(prefix="", tags=["tasks"])
 
@@ -109,6 +118,49 @@ async def _owned_task(db: AsyncSession, user_id: int, task_id: int) -> Task:
             status_code=status.HTTP_404_NOT_FOUND, detail="Task not found"
         )
     return task
+
+
+async def _collect_descendant_ids(
+    db: AsyncSession, root_ids: List[int]
+) -> List[int]:
+    """Return root_ids plus every descendant id, by level. SQLAlchemy
+    doesn't have a portable recursive-CTE API, so we just BFS the tree
+    in Python — fine at the depths we expect in practice."""
+    all_ids: List[int] = list(root_ids)
+    frontier: List[int] = list(root_ids)
+    while frontier:
+        result = await db.execute(
+            select(Task.id).filter(Task.parent_task_id.in_(frontier))
+        )
+        next_level = [r[0] for r in result.all()]
+        if not next_level:
+            break
+        all_ids.extend(next_level)
+        frontier = next_level
+    return all_ids
+
+
+async def _set_archived(
+    db: AsyncSession, root_ids: List[int], archived: bool
+) -> int:
+    """Flip archived_at on the given roots and every descendant. Returns
+    the number of rows actually updated (i.e. that flipped state)."""
+    if not root_ids:
+        return 0
+    ids = await _collect_descendant_ids(db, root_ids)
+    new_value = utcnow().replace(tzinfo=None) if archived else None
+    # Only touch rows whose archived state would actually change so the
+    # "archived" counter reported back to the SPA is accurate.
+    if archived:
+        condition = Task.archived_at.is_(None)
+    else:
+        condition = Task.archived_at.is_not(None)
+    result = await db.execute(
+        sql_update(Task)
+        .where(Task.id.in_(ids), condition)
+        .values(archived_at=new_value)
+    )
+    return result.rowcount or 0
 
 
 async def _hydrated_task(db: AsyncSession, task_id: int) -> Task:
@@ -309,6 +361,9 @@ async def update_task(
 
     if task_in.tag_ids is not None:
         task.tags = await _fetch_caller_tags(db, current_user.id, task_in.tag_ids)
+
+    if task_in.archived is not None:
+        await _set_archived(db, [task.id], task_in.archived)
 
     if task_in.requester_id is not None:
         if task_in.requester_id == 0:

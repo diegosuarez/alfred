@@ -50,6 +50,10 @@ async def _migrate_task_schema() -> None:
                     "REFERENCES contacts(id) ON DELETE SET NULL"
                 )
             )
+        if "archived_at" not in cols:
+            await conn.execute(
+                text("ALTER TABLE tasks ADD COLUMN archived_at DATETIME")
+            )
 
         # Contact provenance fields, added once contacts existed locally.
         contact_table = (

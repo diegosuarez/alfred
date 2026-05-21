@@ -147,6 +147,21 @@ async def get_board_detail(
     # relationship. Mutating col.tasks here would orphan the children
     # and the cascade="all, delete-orphan" on Column.tasks would
     # silently delete them when get_db commits the session.
+    def _live(task: Task) -> bool:
+        return task.parent_task_id is None and task.archived_at is None
+
+    def _to_response(task: Task) -> TaskResponse:
+        # Strip archived children out of the nested list before Pydantic
+        # walks them, so the kanban view never shows archived rows.
+        live_children = [c for c in task.children if c.archived_at is None]
+        # Temporarily swap the attribute on a transient copy so we don't
+        # touch the ORM-managed collection (delete-orphan would fire on
+        # commit otherwise).
+        from sqlalchemy.orm.attributes import set_committed_value
+
+        set_committed_value(task, "children", live_children)
+        return TaskResponse.model_validate(task)
+
     return BoardDetailedResponse(
         id=board.id,
         name=board.name,
@@ -163,11 +178,7 @@ async def get_board_detail(
                 board_id=col.board_id,
                 created_at=col.created_at,
                 updated_at=col.updated_at,
-                tasks=[
-                    TaskResponse.model_validate(t)
-                    for t in col.tasks
-                    if t.parent_task_id is None
-                ],
+                tasks=[_to_response(t) for t in col.tasks if _live(t)],
             )
             for col in board.columns
         ],
