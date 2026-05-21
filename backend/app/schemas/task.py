@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from datetime import datetime
 from typing import List, Optional
 
@@ -40,6 +38,24 @@ class TaskUpdate(BaseModel):
     tag_ids: Optional[List[int]] = None
 
 
+class TaskChildResponse(TaskBase):
+    """Shallow child task — no `children` field on purpose so eager-load
+    chains stay bounded. The SPA drills deeper by re-rendering a child
+    as the current task (via GET /tasks/{id} or refreshing the board)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    column_id: int
+    board_id: int
+    parent_task_id: Optional[int] = None
+    completed: bool = False
+    created_at: datetime
+    updated_at: datetime
+    total_focus_time: Optional[int] = 0
+    tags: List[TagResponse] = []
+
+
 class TaskResponse(TaskBase):
     model_config = ConfigDict(from_attributes=True)
 
@@ -52,13 +68,7 @@ class TaskResponse(TaskBase):
     updated_at: datetime
     total_focus_time: Optional[int] = 0
     tags: List[TagResponse] = []
-    # Direct children only — we don't recurse beyond one level here to
-    # keep eager-load chains bounded.
-    children: List["TaskResponse"] = []
-
-
-# Resolve the forward reference for the recursive children list.
-TaskResponse.model_rebuild()
+    children: List[TaskChildResponse] = []
 
 
 class TaskReorder(BaseModel):

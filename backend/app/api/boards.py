@@ -12,6 +12,8 @@ from app.models.column import Column
 from app.models.context import Context
 from app.models.task import Task
 from app.schemas.board import BoardCreate, BoardUpdate, BoardResponse, BoardDetailedResponse
+from app.schemas.column import ColumnDetailedResponse
+from app.schemas.task import TaskResponse
 
 router = APIRouter(prefix="/boards", tags=["boards"])
 
@@ -126,13 +128,36 @@ async def get_board_detail(
             status_code=status.HTTP_404_NOT_FOUND, detail="Board not found"
         )
 
-    # Filter children out of the top-level Column.tasks list — they
-    # surface only inside their parent's `children` field. Done in
-    # Python so the relationship integrity stays untouched for ORM
-    # consumers (cascade etc.).
-    for col in board.columns:
-        col.tasks = [t for t in col.tasks if t.parent_task_id is None]
-    return board
+    # Build the response manually so we can filter child tasks out of
+    # the top-level Column.tasks list WITHOUT mutating the ORM
+    # relationship. Mutating col.tasks here would orphan the children
+    # and the cascade="all, delete-orphan" on Column.tasks would
+    # silently delete them when get_db commits the session.
+    return BoardDetailedResponse(
+        id=board.id,
+        name=board.name,
+        description=board.description,
+        user_id=board.user_id,
+        context_id=board.context_id,
+        created_at=board.created_at,
+        updated_at=board.updated_at,
+        columns=[
+            ColumnDetailedResponse(
+                id=col.id,
+                name=col.name,
+                position=col.position,
+                board_id=col.board_id,
+                created_at=col.created_at,
+                updated_at=col.updated_at,
+                tasks=[
+                    TaskResponse.model_validate(t)
+                    for t in col.tasks
+                    if t.parent_task_id is None
+                ],
+            )
+            for col in board.columns
+        ],
+    )
 
 
 @router.put("/{board_id}", response_model=BoardResponse)

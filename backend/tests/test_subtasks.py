@@ -169,6 +169,38 @@ async def test_board_detail_nests_children_under_parent(
     assert titles == ["Child A", "Child B"]
 
 
+async def test_children_survive_a_second_board_fetch(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """Regression: a previous implementation mutated Column.tasks in
+    place to filter out children, which silently orphan-deleted them
+    on session commit. Fetching twice now must keep the children."""
+    parent_id, _ = await _make_parent_task(client, auth_headers)
+    await client.post(
+        f"/api/tasks/{parent_id}/subtasks",
+        json={"title": "Persist me"},
+        headers=auth_headers,
+    )
+    # First fetch — the bug used to serve the right shape and then
+    # delete the rows on the way out.
+    first = await client.get(
+        f"/api/boards/1", headers=auth_headers
+    )
+    # The board id depends on context_id, so look up via the API:
+    boards = (await client.get("/api/boards", headers=auth_headers)).json()
+    board_id = next(b["id"] for b in boards if b["name"] == "B")
+    first = await client.get(f"/api/boards/{board_id}", headers=auth_headers)
+    assert [
+        c["title"]
+        for c in first.json()["columns"][0]["tasks"][0]["children"]
+    ] == ["Persist me"]
+    second = await client.get(f"/api/boards/{board_id}", headers=auth_headers)
+    assert [
+        c["title"]
+        for c in second.json()["columns"][0]["tasks"][0]["children"]
+    ] == ["Persist me"]
+
+
 async def test_delete_parent_cascades_to_children(
     client: AsyncClient, auth_headers: dict[str, str]
 ) -> None:
