@@ -28,7 +28,8 @@ services:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      - VITE_API_URL=http://localhost:30000
+      # Vite proxies /api/* to this URL during dev (see vite.config.ts).
+      - VITE_PROXY_TARGET=http://backend:8000
     depends_on:
       - backend
     command: npm run dev -- --host 0.0.0.0

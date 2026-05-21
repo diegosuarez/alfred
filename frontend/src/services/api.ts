@@ -1,14 +1,6 @@
-// When VITE_API_URL is unset we derive the backend URL from the current
-// page origin: same protocol, same hostname, port 30000. That way the
-// same build works whether you load the SPA from http://localhost:30001,
-// http://melee:30001 (Tailscale MagicDNS), or any LAN IP.
-const _defaultApiUrl =
-  typeof window !== 'undefined'
-    ? `${window.location.protocol}//${window.location.hostname}:30000`
-    : 'http://localhost:30000';
-
-export const API_URL = import.meta.env.VITE_API_URL || _defaultApiUrl;
-
+// The SPA always talks to the backend via the same origin — Vite's dev
+// proxy or Tailscale's path routing forwards /api/* on to the backend.
+// That keeps cookies, CORS and OAuth callbacks single-origin.
 let token = localStorage.getItem('alfred_token') || '';
 
 export const setToken = (newToken: string) => {
@@ -33,7 +25,7 @@ async function request(endpoint: string, options: RequestInit = {}) {
     headers.set('Content-Type', 'application/json');
   }
   
-  const response = await fetch(`${API_URL}/api${endpoint}`, {
+  const response = await fetch(`/api${endpoint}`, {
     ...options,
     headers,
     // include credentials so the OAuth state cookie set by /google-accounts/connect

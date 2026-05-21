@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { api, API_URL } from '../services/api';
+import { api } from '../services/api';
 
 interface AuthProps {
   onLoginSuccess: () => void;
@@ -80,7 +80,7 @@ export const Auth: React.FC<AuthProps> = ({ onLoginSuccess }) => {
         </div>
 
         <a
-          href={`${API_URL}/api/auth/google/login`}
+          href="/api/auth/google/login"
           style={styles.googleBtn}
           className="glass-button-secondary"
         >
