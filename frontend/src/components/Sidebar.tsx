@@ -255,21 +255,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
 
         <div style={styles.contextPills}>
-          <button
-            className="glass-button-secondary"
-            style={{
-              ...styles.contextPill,
-              ...(activeContextId === null ? styles.activeContextPill : {}),
-            }}
-            onClick={() => onSelectContext(null)}
-          >
-            Todos
-          </button>
+          <div style={styles.contextRow}>
+            <button
+              className="glass-button-secondary"
+              style={{
+                ...styles.contextPill,
+                ...(activeContextId === null ? styles.activeContextPill : {}),
+              }}
+              onClick={() => onSelectContext(null)}
+            >
+              Todos
+            </button>
+          </div>
           {contexts.map((ctx) => {
             const active = activeContextId === ctx.id;
             const accent = ctx.color || 'rgba(255,255,255,0.18)';
             return (
-              <React.Fragment key={ctx.id}>
+              <div key={ctx.id} style={styles.contextRow}>
                 <button
                   className="glass-button-secondary"
                   style={{
@@ -315,7 +317,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     ⋯
                   </button>
                 )}
-              </React.Fragment>
+              </div>
             );
           })}
         </div>
@@ -623,9 +625,15 @@ const styles: Record<string, React.CSSProperties> = {
   },
   contextPills: {
     display: 'flex',
-    flexWrap: 'wrap',
+    flexDirection: 'column',
     gap: '6px',
     marginTop: '4px',
+  },
+  contextRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '6px',
   },
   contextPill: {
     padding: '6px 12px',
