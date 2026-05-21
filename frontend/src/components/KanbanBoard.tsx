@@ -4,6 +4,7 @@ import { Avatar } from './Avatar';
 import { ContactPicker, type Contact } from './ContactPicker';
 import { ArchivedTasksModal } from './ArchivedTasksModal';
 import { ReminderPicker } from './ReminderPicker';
+import { FilterModal, EMPTY_FILTERS, type Filters } from './FilterModal';
 
 interface Tag {
   id: number;
@@ -28,6 +29,7 @@ interface Task {
   board_id: number;
   parent_task_id?: number | null;
   completed: boolean;
+  created_at: string;
   total_focus_time: number;
   tags: Tag[];
   requester?: Contact | null;
@@ -99,7 +101,8 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   // Tag state (user-scoped, loaded once per board mount). The filter is
   // an inclusive OR — a task with any selected tag stays visible.
   const [allTags, setAllTags] = useState<Tag[]>([]);
-  const [filterTagIds, setFilterTagIds] = useState<number[]>([]);
+  const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [showFilterModal, setShowFilterModal] = useState(false);
   const [newTagName, setNewTagName] = useState('');
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
   const [allContacts, setAllContacts] = useState<Contact[]>([]);
@@ -164,10 +167,110 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     return () => document.removeEventListener('mousedown', close);
   }, [columnMenuOpenId]);
 
-  const toggleFilterTag = (tagId: number) => {
-    setFilterTagIds((prev) =>
-      prev.includes(tagId) ? prev.filter((t) => t !== tagId) : [...prev, tagId],
-    );
+  // Apply all current filters to a task. Title query is case-insensitive
+  // substring; tag/assignee multi-filters are OR within, AND across
+  // categories.
+  const passesFilters = (task: Task): boolean => {
+    const q = filters.query.trim().toLowerCase();
+    if (q && !(task.title.toLowerCase().includes(q) || (task.description ?? '').toLowerCase().includes(q))) {
+      return false;
+    }
+    if (filters.tagIds.length > 0 && !task.tags.some((t) => filters.tagIds.includes(t.id))) {
+      return false;
+    }
+    if (filters.requesterId !== null && task.requester?.id !== filters.requesterId) {
+      return false;
+    }
+    if (
+      filters.assigneeIds.length > 0 &&
+      !task.assignees.some((a) => filters.assigneeIds.includes(a.id))
+    ) {
+      return false;
+    }
+    if (filters.createdFrom || filters.createdTo) {
+      const created = new Date(task.created_at).getTime();
+      if (filters.createdFrom && created < new Date(filters.createdFrom + 'T00:00:00').getTime()) {
+        return false;
+      }
+      if (filters.createdTo && created > new Date(filters.createdTo + 'T23:59:59').getTime()) {
+        return false;
+      }
+    }
+    if (filters.dueFrom || filters.dueTo) {
+      if (!task.due_date) return false;
+      const due = new Date(task.due_date).getTime();
+      if (filters.dueFrom && due < new Date(filters.dueFrom + 'T00:00:00').getTime()) {
+        return false;
+      }
+      if (filters.dueTo && due > new Date(filters.dueTo + 'T23:59:59').getTime()) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  // Human-readable list of active filter chips. Each chip carries the
+  // setter that removes it from the live filter set.
+  const activeFilterChips = (): { key: string; label: string; clear: () => void }[] => {
+    const chips: { key: string; label: string; clear: () => void }[] = [];
+    for (const tid of filters.tagIds) {
+      const t = allTags.find((x) => x.id === tid);
+      chips.push({
+        key: `tag-${tid}`,
+        label: `etiqueta: ${t?.name ?? tid}`,
+        clear: () =>
+          setFilters((f) => ({ ...f, tagIds: f.tagIds.filter((x) => x !== tid) })),
+      });
+    }
+    if (filters.requesterId !== null) {
+      const c = allContacts.find((x) => x.id === filters.requesterId);
+      chips.push({
+        key: 'requester',
+        label: `encargada por: ${c?.name ?? filters.requesterId}`,
+        clear: () => setFilters((f) => ({ ...f, requesterId: null })),
+      });
+    }
+    for (const aid of filters.assigneeIds) {
+      const c = allContacts.find((x) => x.id === aid);
+      chips.push({
+        key: `assignee-${aid}`,
+        label: `delegada en: ${c?.name ?? aid}`,
+        clear: () =>
+          setFilters((f) => ({
+            ...f,
+            assigneeIds: f.assigneeIds.filter((x) => x !== aid),
+          })),
+      });
+    }
+    if (filters.createdFrom) {
+      chips.push({
+        key: 'createdFrom',
+        label: `creada ≥ ${filters.createdFrom}`,
+        clear: () => setFilters((f) => ({ ...f, createdFrom: null })),
+      });
+    }
+    if (filters.createdTo) {
+      chips.push({
+        key: 'createdTo',
+        label: `creada ≤ ${filters.createdTo}`,
+        clear: () => setFilters((f) => ({ ...f, createdTo: null })),
+      });
+    }
+    if (filters.dueFrom) {
+      chips.push({
+        key: 'dueFrom',
+        label: `vence ≥ ${filters.dueFrom}`,
+        clear: () => setFilters((f) => ({ ...f, dueFrom: null })),
+      });
+    }
+    if (filters.dueTo) {
+      chips.push({
+        key: 'dueTo',
+        label: `vence ≤ ${filters.dueTo}`,
+        clear: () => setFilters((f) => ({ ...f, dueTo: null })),
+      });
+    }
+    return chips;
   };
 
   const handleCreateTag = async () => {
@@ -579,6 +682,13 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     },
   ) => {
     const draggable = opts.dropIndex !== null;
+    // Priority drives the card border colour. Medium stays default.
+    const priorityBorder =
+      task.priority === 'high'
+        ? 'rgba(239, 68, 68, 0.65)'
+        : task.priority === 'low'
+        ? 'rgba(59, 130, 246, 0.55)'
+        : undefined;
     return (
       <div
         className="glass-card"
@@ -586,6 +696,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
           ...styles.taskCard,
           ...(opts.isChild ? styles.childTaskCard : {}),
           ...(task.completed ? styles.completedTaskCard : {}),
+          ...(priorityBorder ? { borderColor: priorityBorder } : {}),
         }}
         draggable={draggable}
         onDragStart={draggable ? (e) => handleDragStart(e, task.id) : undefined}
@@ -596,37 +707,52 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
             : undefined
         }
         onClick={() => setSelectedTask(task)}
+        title={`Prioridad: ${getPriorityLabel(task.priority)}`}
       >
         <div style={styles.taskCardHeader}>
-          <span
-            style={{
-              ...styles.priorityBadge,
-              backgroundColor: getPriorityColor(task.priority),
-            }}
-          >
-            {getPriorityLabel(task.priority)}
-          </span>
-          {task.total_focus_time > 0 && (
-            <span style={styles.focusTimeBadge}>
-              ⏱️ {formatFocusTime(task.total_focus_time)}
-            </span>
+          {/* Tags take the header slot the priority badge used to occupy. */}
+          {(task.tags ?? []).length > 0 ? (
+            <div style={styles.headerTags}>
+              {(task.tags ?? []).map((tag) => (
+                <span
+                  key={tag.id}
+                  style={{
+                    ...styles.tagChip,
+                    ...(tag.color
+                      ? { borderColor: tag.color, color: tag.color }
+                      : {}),
+                  }}
+                >
+                  {tag.name}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <span />
           )}
-          {(task.children ?? []).length > 0 && (
-            <span style={styles.subtaskCounter}>
-              ☑ {(task.children ?? []).filter((s) => s.completed).length}/
-              {(task.children ?? []).length}
-            </span>
-          )}
-          {(task.reminders ?? []).length > 0 && (
-            <span
-              style={styles.reminderBadge}
-              title={`${(task.reminders ?? []).length} recordatorio${
-                (task.reminders ?? []).length === 1 ? '' : 's'
-              }`}
-            >
-              🔔 {(task.reminders ?? []).length}
-            </span>
-          )}
+          <div style={styles.headerBadges}>
+            {task.total_focus_time > 0 && (
+              <span style={styles.focusTimeBadge}>
+                ⏱️ {formatFocusTime(task.total_focus_time)}
+              </span>
+            )}
+            {(task.children ?? []).length > 0 && (
+              <span style={styles.subtaskCounter}>
+                ☑ {(task.children ?? []).filter((s) => s.completed).length}/
+                {(task.children ?? []).length}
+              </span>
+            )}
+            {(task.reminders ?? []).length > 0 && (
+              <span
+                style={styles.reminderBadge}
+                title={`${(task.reminders ?? []).length} recordatorio${
+                  (task.reminders ?? []).length === 1 ? '' : 's'
+                }`}
+              >
+                🔔 {(task.reminders ?? []).length}
+              </span>
+            )}
+          </div>
         </div>
         <h4
           style={{
@@ -637,23 +763,6 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
           {task.title}
         </h4>
         {task.description && <p style={styles.taskDesc}>{task.description}</p>}
-        {(task.tags ?? []).length > 0 && (
-          <div style={styles.tagChipRow}>
-            {(task.tags ?? []).map((tag) => (
-              <span
-                key={tag.id}
-                style={{
-                  ...styles.tagChip,
-                  ...(tag.color
-                    ? { borderColor: tag.color, color: tag.color }
-                    : {}),
-                }}
-              >
-                {tag.name}
-              </span>
-            ))}
-          </div>
-        )}
         {(task.requester || task.assignees.length > 0) && (
           <div style={styles.peopleRow}>
             {task.requester && (
@@ -692,13 +801,19 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
           </div>
         )}
         <div style={styles.taskFooter}>
-          {task.due_date ? (
-            <span style={styles.dueDate}>
-              📅 {new Date(task.due_date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
+          <div style={styles.footerMeta}>
+            {task.due_date && (
+              <span style={styles.dueDate}>
+                📅 {new Date(task.due_date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
+              </span>
+            )}
+            <span
+              style={styles.createdHint}
+              title={`Creada el ${new Date(task.created_at).toLocaleString('es-ES')}`}
+            >
+              {relativeCreated(task.created_at)}
             </span>
-          ) : (
-            <span />
-          )}
+          </div>
           <button
             className="glass-button"
             style={styles.focusTaskBtn}
@@ -714,6 +829,21 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
       </div>
     );
   };
+
+  function relativeCreated(iso: string): string {
+    const created = new Date(iso).getTime();
+    const days = Math.floor((Date.now() - created) / 86_400_000);
+    if (days <= 0) return 'hoy';
+    if (days === 1) return 'ayer';
+    if (days < 7) return `hace ${days} d`;
+    if (days < 30) return `hace ${Math.floor(days / 7)} sem`;
+    if (days < 365) return `hace ${Math.floor(days / 30)} m`;
+    return new Date(iso).toLocaleDateString('es-ES', {
+      day: 'numeric',
+      month: 'short',
+      year: '2-digit',
+    });
+  }
 
   if (loading && !board) {
     return <div style={styles.centered}>Cargando Alfred...</div>;
@@ -759,38 +889,59 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
         </form>
       )}
 
-      {/* Tag filter bar — inclusive OR */}
-      {allTags.length > 0 && (
-        <div style={styles.tagFilterBar}>
-          <span style={styles.tagFilterLabel}>Filtrar:</span>
-          {allTags.map((tag) => {
-            const active = filterTagIds.includes(tag.id);
-            return (
-              <button
-                key={tag.id}
-                className="glass-button-secondary"
-                style={{
-                  ...styles.tagFilterChip,
-                  ...(active ? styles.tagFilterChipActive : {}),
-                  ...(tag.color && !active ? { borderColor: tag.color } : {}),
-                }}
-                onClick={() => toggleFilterTag(tag.id)}
-              >
-                {tag.name}
-              </button>
-            );
-          })}
-          {filterTagIds.length > 0 && (
-            <button
-              style={styles.tagFilterClear}
-              onClick={() => setFilterTagIds([])}
-              title="Quitar filtros"
-            >
-              ✕
-            </button>
-          )}
+      {/* Search + filter modal trigger + active-filter chip bar */}
+      <div style={styles.filterBar}>
+        <div style={styles.searchRow}>
+          <input
+            type="text"
+            className="glass-input"
+            style={styles.searchInput}
+            placeholder="🔍 Buscar tareas..."
+            value={filters.query}
+            onChange={(e) =>
+              setFilters((f) => ({ ...f, query: e.target.value }))
+            }
+          />
+          <button
+            type="button"
+            className="glass-button-secondary"
+            style={styles.filterTriggerBtn}
+            onClick={() => setShowFilterModal(true)}
+            title="Más filtros"
+          >
+            🎛 Filtros
+          </button>
         </div>
-      )}
+        {(() => {
+          const chips = activeFilterChips();
+          if (chips.length === 0) return null;
+          return (
+            <div style={styles.activeFilterChips}>
+              {chips.map((c) => (
+                <span key={c.key} style={styles.activeFilterChip}>
+                  {c.label}
+                  <button
+                    type="button"
+                    style={styles.activeFilterChipClose}
+                    onClick={c.clear}
+                    title="Quitar filtro"
+                  >
+                    ✕
+                  </button>
+                </span>
+              ))}
+              <button
+                type="button"
+                style={styles.activeFilterClearAll}
+                onClick={() => setFilters({ ...EMPTY_FILTERS, query: filters.query })}
+                title="Limpiar todos"
+              >
+                Limpiar
+              </button>
+            </div>
+          );
+        })()}
+      </div>
 
       {/* Columns Workspace */}
       <div style={styles.workspace}>
@@ -852,11 +1003,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
             {/* Task list container */}
             <div style={styles.taskList}>
               {col.tasks
-                .filter((task) =>
-                  filterTagIds.length === 0
-                    ? true
-                    : task.tags.some((t) => filterTagIds.includes(t.id)),
-                )
+                .filter(passesFilters)
                 .map((task) => {
                   // Drop index targets the original (unfiltered) position so
                   // reordering still makes sense when a tag filter is active.
@@ -971,7 +1118,19 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
             onClick={(e) => e.stopPropagation()}
           >
             <div style={styles.modalHeader}>
-              <h3>Editar Tarea</h3>
+              <div>
+                <h3>Editar Tarea</h3>
+                <div style={styles.modalCreatedHint}>
+                  Creada el{' '}
+                  {new Date(selectedTask.created_at).toLocaleString('es-ES', {
+                    day: 'numeric',
+                    month: 'short',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </div>
+              </div>
               <button style={styles.modalClose} onClick={() => setSelectedTask(null)}>
                 ✕
               </button>
@@ -1388,6 +1547,16 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
           onPick={handleCreateReminder}
         />
       )}
+
+      {showFilterModal && (
+        <FilterModal
+          filters={filters}
+          tags={allTags}
+          contacts={allContacts}
+          onClose={() => setShowFilterModal(false)}
+          onApply={setFilters}
+        />
+      )}
     </div>
   );
 };
@@ -1492,6 +1661,36 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#ffffff',
     padding: '2px 8px',
     borderRadius: '10px',
+  },
+  headerTags: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    gap: '4px',
+    flex: 1,
+    minWidth: 0,
+  },
+  headerBadges: {
+    display: 'flex',
+    gap: '6px',
+    alignItems: 'center',
+    flexShrink: 0,
+  },
+  footerMeta: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    flex: 1,
+    minWidth: 0,
+  },
+  createdHint: {
+    fontSize: '10px',
+    color: 'var(--text-muted)',
+    fontStyle: 'italic',
+  },
+  modalCreatedHint: {
+    fontSize: '11px',
+    color: 'var(--text-muted)',
+    marginTop: '2px',
   },
   focusTimeBadge: {
     fontSize: '11px',
@@ -1677,37 +1876,61 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'rgba(255,255,255,0.03)',
     letterSpacing: '0.3px',
   },
-  tagFilterBar: {
+  filterBar: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    marginBottom: '16px',
+  },
+  searchRow: {
+    display: 'flex',
+    gap: '8px',
+  },
+  searchInput: {
+    flex: 1,
+    padding: '8px 12px',
+    fontSize: '13px',
+  },
+  filterTriggerBtn: {
+    padding: '8px 14px',
+    fontSize: '12px',
+    whiteSpace: 'nowrap',
+  },
+  activeFilterChips: {
     display: 'flex',
     flexWrap: 'wrap',
     gap: '6px',
     alignItems: 'center',
-    marginBottom: '16px',
   },
-  tagFilterLabel: {
-    fontSize: '11px',
-    textTransform: 'uppercase',
-    letterSpacing: '1px',
-    color: 'var(--text-muted)',
-    marginRight: '4px',
-  },
-  tagFilterChip: {
-    padding: '4px 10px',
-    fontSize: '12px',
+  activeFilterChip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '4px 4px 4px 10px',
+    background: 'rgba(99,102,241,0.14)',
+    border: '1px solid rgba(99,102,241,0.40)',
     borderRadius: '999px',
-  },
-  tagFilterChipActive: {
-    background: 'rgba(99,102,241,0.18)',
-    borderColor: 'rgba(99,102,241,0.45)',
+    fontSize: '11px',
     color: '#ffffff',
   },
-  tagFilterClear: {
+  activeFilterChipClose: {
     background: 'transparent',
     border: 'none',
     color: 'var(--text-muted)',
     cursor: 'pointer',
-    fontSize: '12px',
+    fontSize: '10px',
+    padding: '2px 6px',
+    borderRadius: '50%',
+  },
+  activeFilterClearAll: {
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--text-muted)',
+    cursor: 'pointer',
+    fontSize: '11px',
+    fontStyle: 'italic',
     marginLeft: '4px',
+    textDecoration: 'underline dotted',
   },
   tagPickerRow: {
     display: 'flex',
