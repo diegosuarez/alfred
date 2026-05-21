@@ -8,6 +8,10 @@ services:
     volumes:
       - ./backend:/app
       - /app/.venv
+    env_file:
+      # Gitignored; holds Google OAuth credentials and other host-specific
+      # overrides. Copy backend/.env.example to backend/.env to populate it.
+      - ./backend/.env
     environment:
       # Absolute path inside the container (4 slashes => absolute in SQLAlchemy URL).
       - DATABASE_URL=sqlite+aiosqlite:////app/data/alfred.db
