@@ -1,4 +1,4 @@
-from datetime import datetime
+from app.core.time import UtcDatetime
 from typing import List
 
 from pydantic import BaseModel, ConfigDict
@@ -10,8 +10,8 @@ class GoogleAccountResponse(BaseModel):
     id: int
     email: str
     scopes: str
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
 
 
 class ConnectGoogleAccountRequest(BaseModel):

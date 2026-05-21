@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict, Field
-from datetime import datetime
+from app.core.time import UtcDatetime
 from typing import Optional
 
 
@@ -27,5 +27,5 @@ class ContextResponse(ContextBase):
     id: int
     user_id: int
     google_account_id: Optional[int] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime

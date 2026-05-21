@@ -1,10 +1,10 @@
-from datetime import datetime
+from app.core.time import UtcDatetime
 
 from pydantic import BaseModel, ConfigDict
 
 
 class ReminderCreate(BaseModel):
-    remind_at: datetime
+    remind_at: UtcDatetime
 
 
 class ReminderResponse(BaseModel):
@@ -12,8 +12,8 @@ class ReminderResponse(BaseModel):
 
     id: int
     task_id: int
-    remind_at: datetime
-    created_at: datetime
+    remind_at: UtcDatetime
+    created_at: UtcDatetime
 
 
 class PendingReminderResponse(BaseModel):
@@ -23,5 +23,5 @@ class PendingReminderResponse(BaseModel):
     id: int
     task_id: int
     task_title: str
-    remind_at: datetime
-    created_at: datetime
+    remind_at: UtcDatetime
+    created_at: UtcDatetime

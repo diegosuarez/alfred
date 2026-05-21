@@ -1,4 +1,4 @@
-from datetime import datetime
+from app.core.time import UtcDatetime
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -34,8 +34,8 @@ class ContactResponse(ContactBase):
     source: str = "manual"
     google_contact_id: Optional[str] = None
     google_account_id: Optional[int] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
 
 
 class SyncContactsResponse(BaseModel):

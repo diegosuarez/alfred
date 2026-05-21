@@ -1,4 +1,4 @@
-from datetime import datetime
+from app.core.time import UtcDatetime
 from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict
@@ -12,7 +12,7 @@ class TaskBase(BaseModel):
     title: str
     description: Optional[str] = None
     priority: Optional[str] = "medium"  # low, medium, high
-    due_date: Optional[datetime] = None
+    due_date: Optional[UtcDatetime] = None
     position: Optional[int] = 0
 
 
@@ -31,7 +31,7 @@ class TaskUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
     priority: Optional[str] = None
-    due_date: Optional[datetime] = None
+    due_date: Optional[UtcDatetime] = None
     position: Optional[int] = None
     column_id: Optional[int] = None
     completed: Optional[bool] = None
@@ -62,9 +62,9 @@ class TaskChildResponse(TaskBase):
     board_id: int
     parent_task_id: Optional[int] = None
     completed: bool = False
-    archived_at: Optional[datetime] = None
-    created_at: datetime
-    updated_at: datetime
+    archived_at: Optional[UtcDatetime] = None
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
     total_focus_time: Optional[int] = 0
     tags: List[TagResponse] = []
     requester: Optional[ContactResponse] = None
@@ -80,9 +80,9 @@ class TaskResponse(TaskBase):
     board_id: int
     parent_task_id: Optional[int] = None
     completed: bool = False
-    archived_at: Optional[datetime] = None
-    created_at: datetime
-    updated_at: datetime
+    archived_at: Optional[UtcDatetime] = None
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
     total_focus_time: Optional[int] = 0
     tags: List[TagResponse] = []
     requester: Optional[ContactResponse] = None

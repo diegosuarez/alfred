@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict
-from datetime import datetime
+from app.core.time import UtcDatetime
 from typing import Optional, List
 
 class ColumnBase(BaseModel):
@@ -18,8 +18,8 @@ class ColumnResponse(ColumnBase):
 
     id: int
     board_id: int
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
 
 class ColumnReorder(BaseModel):
     column_ids: List[int]

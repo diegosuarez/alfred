@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict
-from datetime import datetime
+from app.core.time import UtcDatetime
 from typing import List
 
 class FocusSessionBase(BaseModel):
@@ -13,7 +13,7 @@ class FocusSessionResponse(FocusSessionBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    created_at: datetime
+    created_at: UtcDatetime
 
 class DailyFocusStats(BaseModel):
     date: str  # YYYY-MM-DD

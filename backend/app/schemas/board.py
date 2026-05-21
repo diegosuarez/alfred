@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict
-from datetime import datetime
+from app.core.time import UtcDatetime
 from typing import Optional
 
 
@@ -27,8 +27,8 @@ class BoardResponse(BoardBase):
     id: int
     user_id: int
     context_id: Optional[int] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
 
 
 from typing import List

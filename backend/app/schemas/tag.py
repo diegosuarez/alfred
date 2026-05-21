@@ -1,4 +1,4 @@
-from datetime import datetime
+from app.core.time import UtcDatetime
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -23,5 +23,5 @@ class TagResponse(TagBase):
 
     id: int
     user_id: int
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
