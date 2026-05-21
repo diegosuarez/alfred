@@ -337,8 +337,15 @@ export const App: React.FC = () => {
         ...(activeContextId !== null && (() => {
           const ctx = contexts.find((c) => c.id === activeContextId);
           if (!ctx?.color) return {};
+          // Two overlapping radial gradients (top-center + bottom-right)
+          // give a more confidently coloured workspace than the previous
+          // 15%-alpha single layer that was hard to perceive on dark bg.
           return {
-            background: `radial-gradient(circle at 50% -10%, ${ctx.color}26 0%, transparent 55%)`,
+            background: [
+              `radial-gradient(ellipse at 50% 0%, ${ctx.color}55 0%, transparent 55%)`,
+              `radial-gradient(ellipse at 100% 100%, ${ctx.color}33 0%, transparent 60%)`,
+            ].join(','),
+            transition: 'background 0.4s ease',
           };
         })()),
       }}>
