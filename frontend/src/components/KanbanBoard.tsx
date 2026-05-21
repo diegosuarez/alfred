@@ -349,6 +349,106 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
     return `${hrs}h ${remMins}m`;
   };
 
+  /** Render a single task card. `dropIndex` is null for non-draggable
+   * subtask cards (the column-level drop handler does its own indexing). */
+  const renderCard = (
+    task: Task,
+    opts: {
+      columnId: number;
+      dropIndex: number | null;
+      isChild?: boolean;
+    },
+  ) => {
+    const draggable = opts.dropIndex !== null;
+    return (
+      <div
+        className="glass-card"
+        style={{
+          ...styles.taskCard,
+          ...(opts.isChild ? styles.childTaskCard : {}),
+          ...(task.completed ? styles.completedTaskCard : {}),
+        }}
+        draggable={draggable}
+        onDragStart={draggable ? (e) => handleDragStart(e, task.id) : undefined}
+        onDragOver={draggable ? handleDragOver : undefined}
+        onDrop={
+          draggable
+            ? (e) => handleTaskDrop(e, opts.columnId, opts.dropIndex as number)
+            : undefined
+        }
+        onClick={() => setSelectedTask(task)}
+      >
+        <div style={styles.taskCardHeader}>
+          <span
+            style={{
+              ...styles.priorityBadge,
+              backgroundColor: getPriorityColor(task.priority),
+            }}
+          >
+            {getPriorityLabel(task.priority)}
+          </span>
+          {task.total_focus_time > 0 && (
+            <span style={styles.focusTimeBadge}>
+              ⏱️ {formatFocusTime(task.total_focus_time)}
+            </span>
+          )}
+          {(task.children ?? []).length > 0 && (
+            <span style={styles.subtaskCounter}>
+              ☑ {(task.children ?? []).filter((s) => s.completed).length}/
+              {(task.children ?? []).length}
+            </span>
+          )}
+        </div>
+        <h4
+          style={{
+            ...styles.taskTitle,
+            ...(task.completed ? styles.taskTitleDone : {}),
+          }}
+        >
+          {task.title}
+        </h4>
+        {task.description && <p style={styles.taskDesc}>{task.description}</p>}
+        {(task.tags ?? []).length > 0 && (
+          <div style={styles.tagChipRow}>
+            {(task.tags ?? []).map((tag) => (
+              <span
+                key={tag.id}
+                style={{
+                  ...styles.tagChip,
+                  ...(tag.color
+                    ? { borderColor: tag.color, color: tag.color }
+                    : {}),
+                }}
+              >
+                {tag.name}
+              </span>
+            ))}
+          </div>
+        )}
+        <div style={styles.taskFooter}>
+          {task.due_date ? (
+            <span style={styles.dueDate}>
+              📅 {new Date(task.due_date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
+            </span>
+          ) : (
+            <span />
+          )}
+          <button
+            className="glass-button"
+            style={styles.focusTaskBtn}
+            onClick={(e) => {
+              e.stopPropagation();
+              onStartFocus({ id: task.id, title: task.title });
+            }}
+            title="Empezar a concentrarse"
+          >
+            ⏱️
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   if (loading && !board) {
     return <div style={styles.centered}>Cargando Alfred...</div>;
   }
@@ -458,109 +558,28 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                   // Drop index targets the original (unfiltered) position so
                   // reordering still makes sense when a tag filter is active.
                   const originalIndex = col.tasks.findIndex((t) => t.id === task.id);
+                  const children = task.children ?? [];
                   return (
-                <div
-                  key={task.id}
-                  className="glass-card"
-                  style={styles.taskCard}
-                  draggable
-                  onDragStart={(e) => handleDragStart(e, task.id)}
-                  onDragOver={handleDragOver}
-                  onDrop={(e) => handleTaskDrop(e, col.id, originalIndex)}
-                  onClick={() => setSelectedTask(task)}
-                >
-                  <div style={styles.taskCardHeader}>
-                    <span
-                      style={{
-                        ...styles.priorityBadge,
-                        backgroundColor: getPriorityColor(task.priority),
-                      }}
-                    >
-                      {getPriorityLabel(task.priority)}
-                    </span>
-                    {task.total_focus_time > 0 && (
-                      <span style={styles.focusTimeBadge}>
-                        ⏱️ {formatFocusTime(task.total_focus_time)}
-                      </span>
-                    )}
-                    {(task.children ?? []).length > 0 && (
-                      <span style={styles.subtaskCounter}>
-                        ☑ {(task.children ?? []).filter((s) => s.completed).length}/
-                        {(task.children ?? []).length}
-                      </span>
-                    )}
-                  </div>
-                  <h4 style={styles.taskTitle}>{task.title}</h4>
-                  {task.description && (
-                    <p style={styles.taskDesc}>{task.description}</p>
-                  )}
-                  {(task.children ?? []).length > 0 && (
-                    <ul
-                      style={styles.cardSubtaskList}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {(task.children ?? []).slice(0, 4).map((sub) => (
-                        <li key={sub.id} style={styles.cardSubtaskItem}>
-                          <input
-                            type="checkbox"
-                            checked={sub.completed}
-                            onChange={() => handleToggleSubtask(sub)}
-                            onClick={(e) => e.stopPropagation()}
-                            style={styles.cardSubtaskCheckbox}
-                          />
-                          <span
-                            style={{
-                              ...styles.cardSubtaskTitle,
-                              ...(sub.completed ? styles.cardSubtaskTitleDone : {}),
-                            }}
-                          >
-                            {sub.title}
-                          </span>
-                        </li>
-                      ))}
-                      {(task.children ?? []).length > 4 && (
-                        <li style={styles.cardSubtaskMore}>
-                          +{(task.children ?? []).length - 4} más
-                        </li>
+                    <div key={task.id} style={styles.taskGroup}>
+                      {renderCard(task, {
+                        columnId: col.id,
+                        dropIndex: originalIndex,
+                      })}
+                      {children.length > 0 && (
+                        <div style={styles.childrenContainer}>
+                          {children.map((child) => (
+                            <div key={child.id} style={styles.childWrapper}>
+                              <span style={styles.connectorH} />
+                              {renderCard(child, {
+                                columnId: col.id,
+                                dropIndex: null,
+                                isChild: true,
+                              })}
+                            </div>
+                          ))}
+                        </div>
                       )}
-                    </ul>
-                  )}
-                  {(task.tags ?? []).length > 0 && (
-                    <div style={styles.tagChipRow}>
-                      {(task.tags ?? []).map((tag) => (
-                        <span
-                          key={tag.id}
-                          style={{
-                            ...styles.tagChip,
-                            ...(tag.color
-                              ? { borderColor: tag.color, color: tag.color }
-                              : {}),
-                          }}
-                        >
-                          {tag.name}
-                        </span>
-                      ))}
                     </div>
-                  )}
-                  <div style={styles.taskFooter}>
-                    {task.due_date ? (
-                      <span style={styles.dueDate}>
-                        📅 {new Date(task.due_date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
-                      </span>
-                    ) : <span />}
-                    <button
-                      className="glass-button"
-                      style={styles.focusTaskBtn}
-                      onClick={(e) => {
-                        e.stopPropagation(); // Avoid opening the detailed modal
-                        onStartFocus({ id: task.id, title: task.title });
-                      }}
-                      title="Empezar a concentrarse"
-                    >
-                      ⏱️
-                    </button>
-                  </div>
-                </div>
                   );
                 })}
 
@@ -1225,45 +1244,46 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '2px 8px',
     letterSpacing: '0.3px',
   },
-  cardSubtaskList: {
-    listStyle: 'none',
-    padding: '6px 0 4px 12px',
-    margin: '8px 0 0 4px',
+  // Container holding a parent card + (optionally) its children stacked
+  // and connected by an L-shaped line on the left.
+  taskGroup: {
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  childrenContainer: {
+    position: 'relative',
+    marginLeft: '20px',
+    paddingLeft: '20px',
+    paddingTop: '6px',
+    marginTop: '6px',
     borderLeft: '2px solid rgba(99,102,241,0.35)',
     display: 'flex',
     flexDirection: 'column',
-    gap: '4px',
+    gap: '10px',
   },
-  cardSubtaskItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    fontSize: '12px',
-    lineHeight: 1.3,
+  childWrapper: {
+    position: 'relative',
   },
-  cardSubtaskCheckbox: {
-    width: '13px',
-    height: '13px',
-    cursor: 'pointer',
-    accentColor: 'var(--accent-primary)',
-    flexShrink: 0,
+  // Short horizontal line bridging the vertical container border to the
+  // left edge of the child card.
+  connectorH: {
+    position: 'absolute',
+    top: '22px',
+    left: '-20px',
+    width: '20px',
+    borderTop: '2px solid rgba(99,102,241,0.35)',
   },
-  cardSubtaskTitle: {
-    color: 'var(--text-secondary)',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-    flex: 1,
+  childTaskCard: {
+    // Slightly smaller so a child reads as "related to" the parent
+    // without losing the full task-card identity.
+    padding: '12px 14px',
   },
-  cardSubtaskTitleDone: {
-    color: 'var(--text-muted)',
+  completedTaskCard: {
+    opacity: 0.6,
+  },
+  taskTitleDone: {
     textDecoration: 'line-through',
-  },
-  cardSubtaskMore: {
-    fontSize: '11px',
     color: 'var(--text-muted)',
-    fontStyle: 'italic',
-    paddingLeft: '21px',
   },
   subtaskLabelCount: {
     color: 'var(--text-muted)',
