@@ -147,10 +147,16 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
   };
 
   const handleToggleSubtask = async (sub: SubTask) => {
-    if (!selectedTask) return;
     try {
       await api.updateSubtask(sub.id, { completed: !sub.completed });
-      await refreshSelectedTask(selectedTask.id);
+      // If the modal is open and showing this subtask's parent, refresh the
+      // modal too; otherwise just refresh the board so cards pick up the
+      // change.
+      if (selectedTask && selectedTask.id === sub.task_id) {
+        await refreshSelectedTask(selectedTask.id);
+      } else {
+        await fetchBoardDetails();
+      }
     } catch (err: any) {
       alert(err.message);
     }
@@ -486,10 +492,10 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                         ⏱️ {formatFocusTime(task.total_focus_time)}
                       </span>
                     )}
-                    {task.subtasks.length > 0 && (
+                    {(task.subtasks ?? []).length > 0 && (
                       <span style={styles.subtaskCounter}>
-                        ☑ {task.subtasks.filter((s) => s.completed).length}/
-                        {task.subtasks.length}
+                        ☑ {(task.subtasks ?? []).filter((s) => s.completed).length}/
+                        {(task.subtasks ?? []).length}
                       </span>
                     )}
                   </div>
@@ -497,9 +503,40 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                   {task.description && (
                     <p style={styles.taskDesc}>{task.description}</p>
                   )}
-                  {task.tags.length > 0 && (
+                  {(task.subtasks ?? []).length > 0 && (
+                    <ul
+                      style={styles.cardSubtaskList}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {(task.subtasks ?? []).slice(0, 4).map((sub) => (
+                        <li key={sub.id} style={styles.cardSubtaskItem}>
+                          <input
+                            type="checkbox"
+                            checked={sub.completed}
+                            onChange={() => handleToggleSubtask(sub)}
+                            onClick={(e) => e.stopPropagation()}
+                            style={styles.cardSubtaskCheckbox}
+                          />
+                          <span
+                            style={{
+                              ...styles.cardSubtaskTitle,
+                              ...(sub.completed ? styles.cardSubtaskTitleDone : {}),
+                            }}
+                          >
+                            {sub.title}
+                          </span>
+                        </li>
+                      ))}
+                      {(task.subtasks ?? []).length > 4 && (
+                        <li style={styles.cardSubtaskMore}>
+                          +{(task.subtasks ?? []).length - 4} más
+                        </li>
+                      )}
+                    </ul>
+                  )}
+                  {(task.tags ?? []).length > 0 && (
                     <div style={styles.tagChipRow}>
-                      {task.tags.map((tag) => (
+                      {(task.tags ?? []).map((tag) => (
                         <span
                           key={tag.id}
                           style={{
@@ -672,16 +709,16 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
               <div style={styles.inputGroup}>
                 <label style={styles.label}>
                   Subtareas{' '}
-                  {selectedTask.subtasks.length > 0 && (
+                  {(selectedTask.subtasks ?? []).length > 0 && (
                     <span style={styles.subtaskLabelCount}>
-                      ({selectedTask.subtasks.filter((s) => s.completed).length}
-                      /{selectedTask.subtasks.length})
+                      ({(selectedTask.subtasks ?? []).filter((s) => s.completed).length}
+                      /{(selectedTask.subtasks ?? []).length})
                     </span>
                   )}
                 </label>
-                {selectedTask.subtasks.length > 0 && (
+                {(selectedTask.subtasks ?? []).length > 0 && (
                   <ul style={styles.subtaskList}>
-                    {selectedTask.subtasks.map((sub) => (
+                    {(selectedTask.subtasks ?? []).map((sub) => (
                       <li key={sub.id} style={styles.subtaskItem}>
                         <input
                           type="checkbox"
@@ -1165,6 +1202,46 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: '999px',
     padding: '2px 8px',
     letterSpacing: '0.3px',
+  },
+  cardSubtaskList: {
+    listStyle: 'none',
+    padding: '6px 0 4px 12px',
+    margin: '8px 0 0 4px',
+    borderLeft: '2px solid rgba(99,102,241,0.35)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+  },
+  cardSubtaskItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontSize: '12px',
+    lineHeight: 1.3,
+  },
+  cardSubtaskCheckbox: {
+    width: '13px',
+    height: '13px',
+    cursor: 'pointer',
+    accentColor: 'var(--accent-primary)',
+    flexShrink: 0,
+  },
+  cardSubtaskTitle: {
+    color: 'var(--text-secondary)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    flex: 1,
+  },
+  cardSubtaskTitleDone: {
+    color: 'var(--text-muted)',
+    textDecoration: 'line-through',
+  },
+  cardSubtaskMore: {
+    fontSize: '11px',
+    color: 'var(--text-muted)',
+    fontStyle: 'italic',
+    paddingLeft: '21px',
   },
   subtaskLabelCount: {
     color: 'var(--text-muted)',
