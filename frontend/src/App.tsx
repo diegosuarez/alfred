@@ -9,6 +9,7 @@ import { GoogleSettings } from './components/GoogleSettings';
 import { TokensSettings } from './components/TokensSettings';
 import { ContactsSettings } from './components/ContactsSettings';
 import { ReminderAlerts, type FiredReminder } from './components/ReminderAlerts';
+import { ensurePushSubscription } from './services/push';
 import { api, getToken, setToken } from './services/api';
 
 interface Context {
@@ -227,6 +228,16 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!isAuthenticated) return;
     reloadReminders();
+    // If the user already granted Notification permission in a previous
+    // session, the SW + push subscription are silently re-established
+    // here so server-side push works without any UI prompt.
+    if (
+      typeof window !== 'undefined' &&
+      'Notification' in window &&
+      Notification.permission === 'granted'
+    ) {
+      ensurePushSubscription();
+    }
     const id = setInterval(reloadReminders, 5 * 60 * 1000); // 5min
     const onFocus = () => reloadReminders();
     window.addEventListener('focus', onFocus);
@@ -237,6 +248,37 @@ export const App: React.FC = () => {
       scheduledTimers.current.clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
+
+  // The service worker postMessages us when the user clicks an OS
+  // notification so we can route them to the right task in the SPA.
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator))
+      return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'reminder-click' && event.data.taskId) {
+        setCurrentView('board');
+        setExternalTaskFocus(event.data.taskId);
+      }
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () =>
+      navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, []);
+
+  // If we landed via a "cold" notification click (the SW opened a new
+  // window with ?focus_task=N because no SPA window was open), pick
+  // that up on first auth.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const url = new URL(window.location.href);
+    const focus = url.searchParams.get('focus_task');
+    if (focus) {
+      setCurrentView('board');
+      setExternalTaskFocus(Number(focus));
+      url.searchParams.delete('focus_task');
+      window.history.replaceState({}, '', url.toString());
+    }
   }, [isAuthenticated]);
 
   const dismissReminder = async (reminderId: number) => {
@@ -473,6 +515,15 @@ export const App: React.FC = () => {
                 } catch {
                   /* ignore */
                 }
+              }
+              if (
+                typeof window !== 'undefined' &&
+                'Notification' in window &&
+                Notification.permission === 'granted'
+              ) {
+                // Make sure the SW is registered and the backend has
+                // our push subscription before the next reminder fires.
+                await ensurePushSubscription();
               }
               reloadReminders();
             }}

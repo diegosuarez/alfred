@@ -289,6 +289,24 @@ export const api = {
 
   getPendingReminders: () => request('/reminders/pending'),
 
+  // Web Push
+  getVapidPublicKey: () => request('/push/vapid-public-key'),
+
+  subscribePush: (subscription: {
+    endpoint: string;
+    keys: { p256dh: string; auth: string };
+  }) =>
+    request('/push/subscribe', {
+      method: 'POST',
+      body: JSON.stringify(subscription),
+    }),
+
+  unsubscribePush: (endpoint: string) =>
+    request('/push/unsubscribe', {
+      method: 'POST',
+      body: JSON.stringify({ endpoint, keys: { p256dh: '', auth: '' } }),
+    }),
+
   deleteTask: (taskId: number) => 
     request(`/tasks/${taskId}`, {
       method: 'DELETE',
