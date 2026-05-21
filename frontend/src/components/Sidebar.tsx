@@ -82,6 +82,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [editingContextName, setEditingContextName] = useState('');
   const [editingBoardId, setEditingBoardId] = useState<number | null>(null);
   const [editingBoardName, setEditingBoardName] = useState('');
+  const [contextMenuOpen, setContextMenuOpen] = useState(false);
 
   const handleCreateBoard = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -125,6 +126,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const handleSetContextColor = async (id: number, color: string) => {
     await onUpdateContext(id, { color });
   };
+
+  // Auto-close the context controls when the active context changes.
+  React.useEffect(() => {
+    setContextMenuOpen(false);
+    cancelEditContext();
+  }, [activeContextId]);
 
   const handleDeleteContextClick = async (id: number, name: string) => {
     if (!confirm(`¿Borrar el contexto "${name}"? Sus tableros se quedarán sin contexto asignado.`)) return;
@@ -292,68 +299,88 @@ export const Sidebar: React.FC<SidebarProps> = ({
           })}
         </div>
 
-        {/* Controls for the active context (rename, color, delete). */}
+        {/* Hamburger trigger to expand the active context controls. */}
         {activeContextId !== null && (() => {
           const ctx = contexts.find((c) => c.id === activeContextId);
           if (!ctx) return null;
           const isEditing = editingContextId === ctx.id;
           return (
-            <div style={styles.contextControls} className="animate-fade-in">
-              {isEditing ? (
-                <input
-                  type="text"
-                  className="glass-input"
-                  style={styles.contextRenameInput}
-                  value={editingContextName}
-                  onChange={(e) => setEditingContextName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      commitEditContext();
-                    } else if (e.key === 'Escape') {
-                      e.preventDefault();
-                      cancelEditContext();
-                    }
+            <>
+              <div style={styles.contextMenuBar}>
+                <button
+                  type="button"
+                  style={{
+                    ...styles.contextMenuTrigger,
+                    ...(contextMenuOpen ? styles.contextMenuTriggerOpen : {}),
                   }}
-                  onBlur={commitEditContext}
-                  autoFocus
-                />
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    style={styles.contextControlBtn}
-                    onClick={() => startEditContext(ctx)}
-                    title="Renombrar contexto"
-                  >
-                    ✏️
-                  </button>
-                  <div style={styles.swatchRowInline}>
-                    {CONTEXT_COLORS.map((c) => (
+                  onClick={() => setContextMenuOpen((o) => !o)}
+                  title={contextMenuOpen ? 'Ocultar opciones' : 'Opciones del contexto'}
+                >
+                  ⋯
+                </button>
+              </div>
+              {contextMenuOpen && (
+                <div
+                  style={styles.contextControls}
+                  className="animate-fade-in"
+                >
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      className="glass-input"
+                      style={styles.contextRenameInput}
+                      value={editingContextName}
+                      onChange={(e) => setEditingContextName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          commitEditContext();
+                        } else if (e.key === 'Escape') {
+                          e.preventDefault();
+                          cancelEditContext();
+                        }
+                      }}
+                      onBlur={commitEditContext}
+                      autoFocus
+                    />
+                  ) : (
+                    <>
                       <button
-                        key={c}
                         type="button"
-                        onClick={() => handleSetContextColor(ctx.id, c)}
-                        style={{
-                          ...styles.swatch,
-                          backgroundColor: c,
-                          ...(ctx.color === c ? styles.swatchActive : {}),
-                        }}
-                        title={c}
-                      />
-                    ))}
-                  </div>
-                  <button
-                    type="button"
-                    style={styles.contextControlBtn}
-                    onClick={() => handleDeleteContextClick(ctx.id, ctx.name)}
-                    title="Borrar contexto"
-                  >
-                    🗑️
-                  </button>
-                </>
+                        style={styles.contextControlBtn}
+                        onClick={() => startEditContext(ctx)}
+                        title="Renombrar contexto"
+                      >
+                        ✏️
+                      </button>
+                      <div style={styles.swatchRowInline}>
+                        {CONTEXT_COLORS.map((c) => (
+                          <button
+                            key={c}
+                            type="button"
+                            onClick={() => handleSetContextColor(ctx.id, c)}
+                            style={{
+                              ...styles.swatch,
+                              backgroundColor: c,
+                              ...(ctx.color === c ? styles.swatchActive : {}),
+                            }}
+                            title={c}
+                          />
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        style={styles.contextControlBtn}
+                        onClick={() => handleDeleteContextClick(ctx.id, ctx.name)}
+                        title="Borrar contexto"
+                      >
+                        🗑️
+                      </button>
+                    </>
+                  )}
+                </div>
               )}
-            </div>
+            </>
           );
         })()}
       </div>
@@ -647,11 +674,32 @@ const styles: Record<string, React.CSSProperties> = {
     border: '2px solid #ffffff',
     boxShadow: '0 0 0 2px rgba(0,0,0,0.4)',
   },
+  contextMenuBar: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    marginTop: '6px',
+  },
+  contextMenuTrigger: {
+    background: 'transparent',
+    border: '1px solid var(--glass-border)',
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
+    fontSize: '14px',
+    padding: '2px 10px',
+    borderRadius: '999px',
+    lineHeight: 1,
+    letterSpacing: '2px',
+  },
+  contextMenuTriggerOpen: {
+    background: 'rgba(255,255,255,0.06)',
+    color: '#ffffff',
+    borderColor: 'rgba(255,255,255,0.18)',
+  },
   contextControls: {
     display: 'flex',
     alignItems: 'center',
     gap: '6px',
-    marginTop: '8px',
+    marginTop: '6px',
     padding: '6px 4px',
   },
   contextControlBtn: {
