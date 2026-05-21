@@ -187,6 +187,50 @@ async def test_sync_requires_contacts_scope(
     assert resp.status_code == 403
 
 
+async def test_sync_claims_existing_email_instead_of_crashing(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    google_creds: None,
+    mock_login: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A manual contact with the same email shouldn't blow up the sync —
+    we promote it to Google-sourced and update its fields in place."""
+    account_id = await _connect_account_with_contacts_scope(client, auth_headers)
+
+    # Pre-seed a manual contact with the email Google will return.
+    await client.post(
+        "/api/contacts",
+        json={"name": "Ada (local)", "email": "ada@example.com"},
+        headers=auth_headers,
+    )
+
+    async def fake_fetch(access_token: str) -> list[dict]:
+        return [
+            {
+                "resourceName": "people/c1",
+                "names": [{"displayName": "Ada Lovelace"}],
+                "emailAddresses": [{"value": "ada@example.com"}],
+            }
+        ]
+
+    monkeypatch.setattr(google_oauth, "fetch_google_contacts", fake_fetch)
+
+    resp = await client.post(
+        f"/api/google-accounts/{account_id}/sync-contacts", headers=auth_headers
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body == {"added": 0, "updated": 1, "total": 1}
+
+    listed = (await client.get("/api/contacts", headers=auth_headers)).json()
+    assert len(listed) == 1
+    only = listed[0]
+    assert only["name"] == "Ada Lovelace"
+    assert only["source"] == "google"
+    assert only["google_account_id"] == account_id
+
+
 async def test_sync_rejects_foreign_account(
     client: AsyncClient,
     auth_headers: dict[str, str],
