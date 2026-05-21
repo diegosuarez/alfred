@@ -18,6 +18,10 @@ class Settings:
     # both before serving its endpoints.
     GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
     GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
+    # Additional audiences accepted on /api/auth/google/native — comma
+    # separated. Used to whitelist the Android / iOS OAuth client ids so
+    # ID tokens issued for them can be exchanged for our own JWT.
+    GOOGLE_NATIVE_AUDIENCES: str = os.getenv("GOOGLE_NATIVE_AUDIENCES", "")
 
     # Public base URLs.
     # APP_URL is where the backend can be reached from a browser (used to

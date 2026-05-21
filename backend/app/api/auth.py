@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from itsdangerous import BadSignature, URLSafeTimedSerializer
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -87,6 +88,66 @@ async def login(
 
     access_token = create_access_token(data={"sub": user.email, "user_id": user.id})
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+class GoogleIdTokenRequest(BaseModel):
+    id_token: str
+
+
+@router.post("/google/native", response_model=Token)
+async def google_native(
+    body: GoogleIdTokenRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Exchange a Google ID token (from a native client like the Android
+    app) for an internal Alfred JWT. Verifies the ID token against
+    Google's tokeninfo endpoint; the accepted audiences live in
+    GOOGLE_CLIENT_ID + GOOGLE_NATIVE_AUDIENCES."""
+    _require_google_configured()
+    try:
+        info = await google_oauth.verify_id_token(body.id_token)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)
+        )
+    email = info.get("email")
+    google_sub = info.get("sub")
+    if not email or not google_sub:
+        raise HTTPException(status_code=400, detail="ID token missing email/sub")
+
+    user = (
+        await db.execute(select(User).filter(User.email == email))
+    ).scalars().first()
+    if not user:
+        user = User(email=email, hashed_password=None)
+        db.add(user)
+        await db.flush()
+        await ensure_self_contact(db, user)
+
+    # Upsert a GoogleAccount row so the native sign-in still feeds the
+    # avatar / display name into the SPA sidebar.
+    account = (
+        await db.execute(
+            select(GoogleAccount).filter(
+                GoogleAccount.user_id == user.id,
+                GoogleAccount.google_user_id == google_sub,
+            )
+        )
+    ).scalars().first()
+    if account is None:
+        account = GoogleAccount(
+            user_id=user.id, google_user_id=google_sub, email=email,
+        )
+        db.add(account)
+    if info.get("name"):
+        account.display_name = info["name"]
+    if info.get("picture"):
+        account.picture_url = info["picture"]
+
+    await db.commit()
+    await db.refresh(user)
+    jwt_token = create_access_token(data={"sub": user.email, "user_id": user.id})
+    return {"access_token": jwt_token, "token_type": "bearer"}
 
 
 def _require_google_configured() -> None:

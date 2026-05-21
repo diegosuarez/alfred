@@ -28,6 +28,7 @@ from app.models.attachment import Attachment  # noqa: F401  (registers mapper)
 from app.models.board import Board
 from app.models.contact import Contact
 from app.models.context import Context
+from app.models.fcm_subscription import FCMSubscription
 from app.models.push_subscription import PushSubscription
 from app.models.reminder import Reminder
 from app.models.task import Task
@@ -344,6 +345,8 @@ async def _dispatch_due_reminders() -> None:
         for rem, task, user_id in rows:
             by_user[user_id].append((rem, task))
 
+        from app.core import fcm as fcm_helper  # late import — optional dep
+
         for user_id, items in by_user.items():
             subs_result = await session.execute(
                 select(PushSubscription).filter(
@@ -351,7 +354,14 @@ async def _dispatch_due_reminders() -> None:
                 )
             )
             subs = subs_result.scalars().all()
-            if not subs:
+            fcm_subs = (
+                await session.execute(
+                    select(FCMSubscription).filter(
+                        FCMSubscription.user_id == user_id
+                    )
+                )
+            ).scalars().all()
+            if not subs and not fcm_subs:
                 # Don't mark sent_at — the user may grant push later and
                 # we'd rather deliver late than swallow the reminder.
                 log.info(
@@ -382,6 +392,34 @@ async def _dispatch_due_reminders() -> None:
                         dead_subs.append(sub)
                 for sub in dead_subs:
                     await session.delete(sub)
+
+                # FCM fan-out. Errors evict the token since FCM returns
+                # well-known exceptions for invalid registrations.
+                dead_fcm: list[FCMSubscription] = []
+                for fsub in fcm_subs:
+                    try:
+                        sent_id = fcm_helper.send_fcm(
+                            fsub.token,
+                            title=task.title,
+                            body="Recordatorio de Alfred",
+                            data={
+                                "task_id": str(task.id),
+                                "reminder_id": str(rem.id),
+                            },
+                        )
+                        if sent_id is not None:
+                            delivered = True
+                    except Exception as exc:  # noqa: BLE001
+                        name = exc.__class__.__name__
+                        if "NotRegistered" in name or "InvalidArgument" in name:
+                            dead_fcm.append(fsub)
+                        else:
+                            log.warning(
+                                "FCM send failed for sub %s: %s", fsub.id, exc
+                            )
+                for fsub in dead_fcm:
+                    await session.delete(fsub)
+
                 if delivered:
                     rem.sent_at = now_naive
                 else:

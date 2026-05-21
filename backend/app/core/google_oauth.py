@@ -22,6 +22,7 @@ from app.core.time import utcnow
 AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
+TOKENINFO_URL = "https://oauth2.googleapis.com/tokeninfo"
 PEOPLE_CONNECTIONS_URL = "https://people.googleapis.com/v1/people/me/connections"
 CONTACTS_SCOPE = "https://www.googleapis.com/auth/contacts.readonly"
 
@@ -66,6 +67,27 @@ async def exchange_code_for_token(code: str, redirect_uri: str) -> dict:
         )
     resp.raise_for_status()
     return resp.json()
+
+
+async def verify_id_token(id_token: str) -> dict:
+    """Validate a Google ID token via Google's tokeninfo endpoint and
+    return the decoded payload. Accepted audiences are GOOGLE_CLIENT_ID
+    plus any value in GOOGLE_NATIVE_AUDIENCES (comma-separated) — that
+    second knob lets us also accept tokens issued for the Android /
+    iOS OAuth clients without having to multi-sign on the backend."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(TOKENINFO_URL, params={"id_token": id_token})
+    if resp.status_code != 200:
+        raise ValueError(f"Google rejected id_token: {resp.status_code} {resp.text}")
+    info = resp.json()
+    allowed = {settings.GOOGLE_CLIENT_ID}
+    extra = settings.GOOGLE_NATIVE_AUDIENCES.strip()
+    if extra:
+        allowed.update(a.strip() for a in extra.split(",") if a.strip())
+    aud = info.get("aud", "")
+    if aud not in allowed:
+        raise ValueError(f"ID token audience '{aud}' not in allow-list")
+    return info
 
 
 async def fetch_userinfo(access_token: str) -> dict:

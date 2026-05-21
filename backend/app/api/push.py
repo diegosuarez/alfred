@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -6,6 +7,7 @@ from app.api.deps import get_current_user
 from app.core import push as push_helper
 from app.core.push import get_vapid_keys
 from app.database import get_db
+from app.models.fcm_subscription import FCMSubscription
 from app.models.push_subscription import PushSubscription
 from app.models.user import User
 from app.schemas.push import (
@@ -96,6 +98,61 @@ async def test_push(
             {"endpoint": sub.endpoint[:60] + "…", "ok": ok, "status_code": status_code}
         )
     return {"sent": outcomes}
+
+
+class FCMSubscribeRequest(BaseModel):
+    token: str
+    device_label: str | None = None
+
+
+@router.post("/fcm/subscribe", status_code=status.HTTP_204_NO_CONTENT)
+async def fcm_subscribe(
+    body: FCMSubscribeRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Register an FCM registration token for the caller. Tokens are
+    globally unique on FCM; if one already exists we rebind it to the
+    current caller (handles re-installs and account swaps cleanly)."""
+    existing = (
+        await db.execute(
+            select(FCMSubscription).filter(FCMSubscription.token == body.token)
+        )
+    ).scalars().first()
+    if existing:
+        existing.user_id = current_user.id
+        if body.device_label:
+            existing.device_label = body.device_label
+        await db.commit()
+        return None
+    sub = FCMSubscription(
+        user_id=current_user.id,
+        token=body.token,
+        device_label=body.device_label,
+    )
+    db.add(sub)
+    await db.commit()
+    return None
+
+
+@router.post("/fcm/unsubscribe", status_code=status.HTTP_204_NO_CONTENT)
+async def fcm_unsubscribe(
+    body: FCMSubscribeRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    sub = (
+        await db.execute(
+            select(FCMSubscription).filter(
+                FCMSubscription.token == body.token,
+                FCMSubscription.user_id == current_user.id,
+            )
+        )
+    ).scalars().first()
+    if sub:
+        await db.delete(sub)
+        await db.commit()
+    return None
 
 
 @router.post("/unsubscribe", status_code=status.HTTP_204_NO_CONTENT)
