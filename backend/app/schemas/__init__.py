@@ -2,6 +2,7 @@ from app.schemas.user import UserCreate, UserResponse, Token, TokenData
 from app.schemas.context import ContextCreate, ContextUpdate, ContextResponse
 from app.schemas.tag import TagCreate, TagUpdate, TagResponse
 from app.schemas.contact import ContactCreate, ContactUpdate, ContactResponse
+from app.schemas.reminder import ReminderCreate, ReminderResponse
 from app.schemas.board import BoardCreate, BoardUpdate, BoardResponse, BoardDetailedResponse
 from app.schemas.column import ColumnCreate, ColumnUpdate, ColumnResponse, ColumnReorder, ColumnDetailedResponse
 from app.schemas.task import TaskCreate, TaskUpdate, TaskResponse, TaskReorder
@@ -21,6 +22,8 @@ __all__ = [
     "ContactCreate",
     "ContactUpdate",
     "ContactResponse",
+    "ReminderCreate",
+    "ReminderResponse",
     "BoardCreate",
     "BoardUpdate",
     "BoardResponse",

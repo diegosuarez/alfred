@@ -15,6 +15,7 @@ from app.api.contexts import router as contexts_router
 from app.api.focus import router as focus_router
 from app.api.google_accounts import router as google_accounts_router
 from app.api.personal_access_tokens import router as pats_router
+from app.api.reminders import router as reminders_router
 from app.api.tags import router as tags_router
 from app.api.tasks import router as tasks_router
 from app.database import AsyncSessionLocal, Base, engine
@@ -201,6 +202,7 @@ app.include_router(boards_router, prefix="/api")
 app.include_router(columns_router, prefix="/api")
 app.include_router(tasks_router, prefix="/api")
 app.include_router(pats_router, prefix="/api")
+app.include_router(reminders_router, prefix="/api")
 app.include_router(focus_router, prefix="/api")
 
 

@@ -76,6 +76,12 @@ class Task(Base):
         back_populates="assigned_tasks",
         order_by="Contact.name",
     )
+    reminders = relationship(
+        "Reminder",
+        back_populates="task",
+        cascade="all, delete-orphan",
+        order_by="Reminder.remind_at",
+    )
 
     @property
     def total_focus_time(self) -> int:

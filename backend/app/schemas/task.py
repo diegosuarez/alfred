@@ -4,6 +4,7 @@ from typing import List, Optional
 from pydantic import BaseModel, ConfigDict
 
 from app.schemas.contact import ContactResponse
+from app.schemas.reminder import ReminderResponse
 from app.schemas.tag import TagResponse
 
 
@@ -68,6 +69,7 @@ class TaskChildResponse(TaskBase):
     tags: List[TagResponse] = []
     requester: Optional[ContactResponse] = None
     assignees: List[ContactResponse] = []
+    reminders: List[ReminderResponse] = []
 
 
 class TaskResponse(TaskBase):
@@ -85,6 +87,7 @@ class TaskResponse(TaskBase):
     tags: List[TagResponse] = []
     requester: Optional[ContactResponse] = None
     assignees: List[ContactResponse] = []
+    reminders: List[ReminderResponse] = []
     children: List[TaskChildResponse] = []
 
 

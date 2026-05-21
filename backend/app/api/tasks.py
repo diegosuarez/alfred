@@ -39,10 +39,12 @@ _TASK_LOAD_OPTIONS = [
     selectinload(Task.focus_sessions),
     selectinload(Task.requester),
     selectinload(Task.assignees),
+    selectinload(Task.reminders),
     selectinload(Task.children).selectinload(Task.tags),
     selectinload(Task.children).selectinload(Task.focus_sessions),
     selectinload(Task.children).selectinload(Task.requester),
     selectinload(Task.children).selectinload(Task.assignees),
+    selectinload(Task.children).selectinload(Task.reminders),
 ]
 
 
