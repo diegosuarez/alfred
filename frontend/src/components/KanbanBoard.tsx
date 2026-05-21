@@ -224,17 +224,18 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
     }
   };
 
-  const handleUpdateTaskDetails = async (e: React.FormEvent) => {
-    e.preventDefault();
+  /** Auto-save a single field of the task currently open in the modal.
+   * Skips the network round-trip if the value didn't actually change. */
+  const commitField = async (
+    field: 'title' | 'description' | 'priority' | 'due_date',
+    value: string | null,
+  ) => {
     if (!selectedTask) return;
+    const previous = (selectedTask as any)[field];
+    if (previous === value || (previous == null && value == null)) return;
     try {
-      await api.updateTask(selectedTask.id, {
-        title: selectedTask.title,
-        description: selectedTask.description || '',
-        priority: selectedTask.priority,
-        due_date: selectedTask.due_date || null,
-      });
-      setSelectedTask(null);
+      const updated = await api.updateTask(selectedTask.id, { [field]: value } as any);
+      setSelectedTask(updated);
       fetchBoardDetails();
     } catch (err: any) {
       alert(err.message);
@@ -666,14 +667,20 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
               </button>
             </div>
 
-            <form onSubmit={handleUpdateTaskDetails} style={styles.modalForm}>
+            <div style={styles.modalForm}>
               <div style={styles.inputGroup}>
                 <label style={styles.label}>Título</label>
                 <input
                   type="text"
                   className="glass-input"
                   value={selectedTask.title}
-                  onChange={(e) => setSelectedTask({ ...selectedTask, title: e.target.value })}
+                  onChange={(e) =>
+                    setSelectedTask({ ...selectedTask, title: e.target.value })
+                  }
+                  onBlur={(e) => commitField('title', e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                  }}
                   required
                 />
               </div>
@@ -684,7 +691,10 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                   className="glass-input"
                   style={{ height: '120px', resize: 'vertical' }}
                   value={selectedTask.description || ''}
-                  onChange={(e) => setSelectedTask({ ...selectedTask, description: e.target.value })}
+                  onChange={(e) =>
+                    setSelectedTask({ ...selectedTask, description: e.target.value })
+                  }
+                  onBlur={(e) => commitField('description', e.target.value)}
                 />
               </div>
 
@@ -694,7 +704,10 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                   <select
                     className="glass-input"
                     value={selectedTask.priority}
-                    onChange={(e) => setSelectedTask({ ...selectedTask, priority: e.target.value })}
+                    onChange={(e) => {
+                      setSelectedTask({ ...selectedTask, priority: e.target.value });
+                      commitField('priority', e.target.value);
+                    }}
                   >
                     <option value="low">Baja</option>
                     <option value="medium">Media</option>
@@ -708,10 +721,16 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                     type="date"
                     className="glass-input"
                     value={selectedTask.due_date ? selectedTask.due_date.split('T')[0] : ''}
-                    onChange={(e) => setSelectedTask({ 
-                      ...selectedTask, 
-                      due_date: e.target.value ? new Date(e.target.value).toISOString() : undefined 
-                    })}
+                    onChange={(e) => {
+                      const iso = e.target.value
+                        ? new Date(e.target.value).toISOString()
+                        : null;
+                      setSelectedTask({
+                        ...selectedTask,
+                        due_date: iso ?? undefined,
+                      });
+                      commitField('due_date', iso);
+                    }}
                   />
                 </div>
               </div>
@@ -870,9 +889,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
               )}
 
               <div style={styles.modalActions}>
-                <button type="submit" className="glass-button">
-                  Guardar Cambios
-                </button>
+                <span style={styles.autosaveHint}>Los cambios se guardan automáticamente</span>
                 <button
                   type="button"
                   className="glass-button glass-button-danger"
@@ -881,7 +898,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                   Eliminar Tarea
                 </button>
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}
@@ -1151,7 +1168,13 @@ const styles: Record<string, React.CSSProperties> = {
   modalActions: {
     display: 'flex',
     justifyContent: 'space-between',
+    alignItems: 'center',
     marginTop: '10px',
+  },
+  autosaveHint: {
+    fontSize: '11px',
+    color: 'var(--text-muted)',
+    fontStyle: 'italic',
   },
   tagChipRow: {
     display: 'flex',
