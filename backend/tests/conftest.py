@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.database import Base, get_db
 from app.main import app
+import app.main as main_module
 
 
 @pytest_asyncio.fixture
@@ -45,12 +46,19 @@ async def client(db_engine: AsyncEngine) -> AsyncIterator[AsyncClient]:
                 raise
 
     app.dependency_overrides[get_db] = override_get_db
+    # The reminder dispatch loop and other background helpers go straight
+    # through `AsyncSessionLocal` (no dependency injection), so we
+    # swap the module-level reference for the test session factory and
+    # restore it afterwards.
+    original_session_factory = main_module.AsyncSessionLocal
+    main_module.AsyncSessionLocal = Session
     transport = ASGITransport(app=app)
     try:
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             yield ac
     finally:
         app.dependency_overrides.clear()
+        main_module.AsyncSessionLocal = original_session_factory
 
 
 @pytest_asyncio.fixture

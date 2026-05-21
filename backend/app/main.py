@@ -1,3 +1,5 @@
+import asyncio
+import logging
 import os
 from collections import defaultdict
 from contextlib import asynccontextmanager
@@ -15,12 +17,19 @@ from app.api.contexts import router as contexts_router
 from app.api.focus import router as focus_router
 from app.api.google_accounts import router as google_accounts_router
 from app.api.personal_access_tokens import router as pats_router
+from app.api.push import router as push_router
 from app.api.reminders import router as reminders_router
 from app.api.tags import router as tags_router
 from app.api.tasks import router as tasks_router
+from app.core.time import utcnow
 from app.database import AsyncSessionLocal, Base, engine
 from app.models.board import Board
 from app.models.context import Context
+from app.models.push_subscription import PushSubscription
+from app.models.reminder import Reminder
+from app.models.task import Task
+
+log = logging.getLogger(__name__)
 
 
 async def _migrate_task_schema() -> None:
@@ -55,6 +64,23 @@ async def _migrate_task_schema() -> None:
             await conn.execute(
                 text("ALTER TABLE tasks ADD COLUMN archived_at DATETIME")
             )
+
+        # Reminder.sent_at lands here because reminders may pre-exist.
+        rem_table = (
+            await conn.execute(
+                text(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type='table' AND name='reminders'"
+                )
+            )
+        ).fetchall()
+        if rem_table:
+            rresult = await conn.execute(text("PRAGMA table_info(reminders)"))
+            rcols = {row[1] for row in rresult.fetchall()}
+            if "sent_at" not in rcols:
+                await conn.execute(
+                    text("ALTER TABLE reminders ADD COLUMN sent_at DATETIME")
+                )
 
         # Contact provenance fields, added once contacts existed locally.
         contact_table = (
@@ -155,6 +181,77 @@ async def _backfill_legacy_boards() -> None:
         await session.commit()
 
 
+async def _dispatch_due_reminders() -> None:
+    """Find reminders whose remind_at has passed and haven't been pushed
+    yet, send a Web Push to each of the owner's subscriptions, then mark
+    sent_at. Imported by tests; called every minute by the lifespan loop."""
+    from app.core import push as push_helper  # late import for monkeypatching
+
+    async with AsyncSessionLocal() as session:
+        now_naive = utcnow().replace(tzinfo=None)
+        result = await session.execute(
+            select(Reminder, Task, Board.user_id)
+            .join(Task, Reminder.task_id == Task.id)
+            .join(Board, Task.board_id == Board.id)
+            .filter(
+                Reminder.sent_at.is_(None),
+                Reminder.remind_at <= now_naive,
+                Task.archived_at.is_(None),
+            )
+        )
+        rows = result.all()
+        if not rows:
+            return
+
+        # Group due reminders by user so we fetch subscriptions once per user.
+        by_user: dict[int, list[tuple[Reminder, Task]]] = defaultdict(list)
+        for rem, task, user_id in rows:
+            by_user[user_id].append((rem, task))
+
+        for user_id, items in by_user.items():
+            subs_result = await session.execute(
+                select(PushSubscription).filter(
+                    PushSubscription.user_id == user_id
+                )
+            )
+            subs = subs_result.scalars().all()
+            for rem, task in items:
+                payload = {
+                    "title": task.title,
+                    "body": "Recordatorio de Alfred",
+                    "task_id": task.id,
+                    "reminder_id": rem.id,
+                    "remind_at": rem.remind_at.isoformat(),
+                    "tag": f"alfred-reminder-{rem.id}",
+                }
+                dead_subs: list[PushSubscription] = []
+                for sub in subs:
+                    ok, status_code = push_helper.send_push(
+                        sub.endpoint, sub.p256dh, sub.auth, payload
+                    )
+                    if not ok and status_code in (404, 410):
+                        dead_subs.append(sub)
+                for sub in dead_subs:
+                    await session.delete(sub)
+                rem.sent_at = now_naive
+        await session.commit()
+
+
+async def _reminder_dispatch_loop(stop_event: asyncio.Event) -> None:
+    """Long-running background task — polls every 30 seconds. Failures are
+    logged and the loop keeps going so a transient push outage doesn't
+    take the loop down."""
+    while not stop_event.is_set():
+        try:
+            await _dispatch_due_reminders()
+        except Exception:
+            log.exception("Reminder dispatch loop tick failed")
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=30.0)
+        except asyncio.TimeoutError:
+            pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Auto-initialize SQLite database tables on startup
@@ -162,8 +259,14 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
     await _migrate_task_schema()
     await _backfill_legacy_boards()
-    yield
-    await engine.dispose()
+    stop_event = asyncio.Event()
+    dispatch_task = asyncio.create_task(_reminder_dispatch_loop(stop_event))
+    try:
+        yield
+    finally:
+        stop_event.set()
+        await dispatch_task
+        await engine.dispose()
 
 
 app = FastAPI(
@@ -203,6 +306,7 @@ app.include_router(columns_router, prefix="/api")
 app.include_router(tasks_router, prefix="/api")
 app.include_router(pats_router, prefix="/api")
 app.include_router(reminders_router, prefix="/api")
+app.include_router(push_router, prefix="/api")
 app.include_router(focus_router, prefix="/api")
 
 

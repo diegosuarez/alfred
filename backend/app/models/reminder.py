@@ -23,6 +23,10 @@ class Reminder(Base):
         index=True,
     )
     remind_at = Column(DateTime, nullable=False, index=True)
+    # When the server-side scheduler fired this reminder over Web Push.
+    # NULL means "still pending"; once set, the loop skips it on the
+    # next tick so the user doesn't get the same notification twice.
+    sent_at = Column(DateTime, nullable=True, index=True)
     created_at = Column(DateTime, default=utcnow)
 
     task = relationship("Task", back_populates="reminders")
