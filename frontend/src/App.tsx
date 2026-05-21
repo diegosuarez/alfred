@@ -201,11 +201,36 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleCreateContext = async (name: string) => {
+  const handleCreateContext = async (name: string, color?: string) => {
     try {
-      const created = await api.createContext(name);
+      const created = await api.createContext(name, color);
       setContexts([...contexts, created]);
       setActiveContextId(created.id);
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleUpdateContext = async (
+    id: number,
+    data: { name?: string; color?: string },
+  ) => {
+    try {
+      const updated = await api.updateContext(id, data);
+      setContexts(contexts.map((c) => (c.id === id ? updated : c)));
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleDeleteContext = async (id: number) => {
+    try {
+      await api.deleteContext(id);
+      const remaining = contexts.filter((c) => c.id !== id);
+      setContexts(remaining);
+      if (activeContextId === id) {
+        setActiveContextId(remaining.length > 0 ? remaining[0].id : null);
+      }
     } catch (err: any) {
       alert(err.message);
     }
@@ -288,6 +313,8 @@ export const App: React.FC = () => {
         activeContextId={activeContextId}
         onSelectContext={(id) => setActiveContextId(id)}
         onCreateContext={handleCreateContext}
+        onUpdateContext={handleUpdateContext}
+        onDeleteContext={handleDeleteContext}
         boards={visibleBoards}
         activeBoardId={activeBoardId}
         onSelectBoard={(id) => setActiveBoardId(id)}
@@ -307,6 +334,13 @@ export const App: React.FC = () => {
       <main style={{
         ...styles.mainContent,
         paddingTop: isMobile ? '60px' : '0px',
+        ...(activeContextId !== null && (() => {
+          const ctx = contexts.find((c) => c.id === activeContextId);
+          if (!ctx?.color) return {};
+          return {
+            background: `radial-gradient(circle at 50% -10%, ${ctx.color}26 0%, transparent 55%)`,
+          };
+        })()),
       }}>
         {currentView === 'board' && activeBoardId !== null && (
           <KanbanBoard

@@ -13,11 +13,26 @@ interface Context {
   color?: string | null;
 }
 
+// Palette of preset colors the user can pick for a context. Picked to
+// stay readable against the dark glassmorphic background.
+export const CONTEXT_COLORS = [
+  '#6366f1', // indigo
+  '#a855f7', // purple
+  '#ec4899', // pink
+  '#ef4444', // red
+  '#f59e0b', // amber
+  '#10b981', // emerald
+  '#14b8a6', // teal
+  '#3b82f6', // blue
+];
+
 interface SidebarProps {
   contexts: Context[];
   activeContextId: number | null;
   onSelectContext: (id: number | null) => void;
-  onCreateContext: (name: string) => Promise<void>;
+  onCreateContext: (name: string, color?: string) => Promise<void>;
+  onUpdateContext: (id: number, data: { name?: string; color?: string }) => Promise<void>;
+  onDeleteContext: (id: number) => Promise<void>;
   boards: Board[];
   activeBoardId: number | null;
   onSelectBoard: (id: number) => void;
@@ -39,6 +54,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeContextId,
   onSelectContext,
   onCreateContext,
+  onUpdateContext,
+  onDeleteContext,
   boards,
   activeBoardId,
   onSelectBoard,
@@ -57,7 +74,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [newBoardName, setNewBoardName] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
   const [newContextName, setNewContextName] = useState('');
+  const [newContextColor, setNewContextColor] = useState<string | null>(null);
   const [showAddContext, setShowAddContext] = useState(false);
+  const [editingContextId, setEditingContextId] = useState<number | null>(null);
+  const [editingContextName, setEditingContextName] = useState('');
   const [editingBoardId, setEditingBoardId] = useState<number | null>(null);
   const [editingBoardName, setEditingBoardName] = useState('');
 
@@ -73,9 +93,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const handleCreateContext = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newContextName.trim()) return;
-    await onCreateContext(newContextName);
+    await onCreateContext(newContextName, newContextColor ?? undefined);
     setNewContextName('');
+    setNewContextColor(null);
     setShowAddContext(false);
+  };
+
+  const startEditContext = (ctx: Context) => {
+    setEditingContextId(ctx.id);
+    setEditingContextName(ctx.name);
+  };
+
+  const cancelEditContext = () => {
+    setEditingContextId(null);
+    setEditingContextName('');
+  };
+
+  const commitEditContext = async () => {
+    if (editingContextId === null) return;
+    const name = editingContextName.trim();
+    if (!name) {
+      cancelEditContext();
+      return;
+    }
+    await onUpdateContext(editingContextId, { name });
+    cancelEditContext();
+  };
+
+  const handleSetContextColor = async (id: number, color: string) => {
+    await onUpdateContext(id, { color });
+  };
+
+  const handleDeleteContextClick = async (id: number, name: string) => {
+    if (!confirm(`¿Borrar el contexto "${name}"? Sus tableros se quedarán sin contexto asignado.`)) return;
+    await onDeleteContext(id);
   };
 
   const startEditBoard = (id: number, current: string) => {
@@ -158,22 +209,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {showAddContext && (
           <form
             onSubmit={handleCreateContext}
-            style={styles.addForm}
+            style={styles.addContextForm}
             className="animate-fade-in"
           >
-            <input
-              type="text"
-              className="glass-input"
-              style={styles.addInput}
-              value={newContextName}
-              onChange={(e) => setNewContextName(e.target.value)}
-              placeholder="Ej. Trabajo, Familia..."
-              autoFocus
-              required
-            />
-            <button type="submit" className="glass-button" style={styles.addSubmit}>
-              Crear
-            </button>
+            <div style={styles.addForm}>
+              <input
+                type="text"
+                className="glass-input"
+                style={styles.addInput}
+                value={newContextName}
+                onChange={(e) => setNewContextName(e.target.value)}
+                placeholder="Ej. Trabajo, Familia..."
+                autoFocus
+                required
+              />
+              <button type="submit" className="glass-button" style={styles.addSubmit}>
+                Crear
+              </button>
+            </div>
+            <div style={styles.swatchRow}>
+              {CONTEXT_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setNewContextColor(c)}
+                  style={{
+                    ...styles.swatch,
+                    backgroundColor: c,
+                    ...(newContextColor === c ? styles.swatchActive : {}),
+                  }}
+                  title={c}
+                />
+              ))}
+            </div>
           </form>
         )}
 
@@ -188,22 +256,104 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             Todos
           </button>
-          {contexts.map((ctx) => (
-            <button
-              key={ctx.id}
-              className="glass-button-secondary"
-              style={{
-                ...styles.contextPill,
-                ...(activeContextId === ctx.id ? styles.activeContextPill : {}),
-                ...(ctx.color ? { borderColor: ctx.color } : {}),
-              }}
-              onClick={() => onSelectContext(ctx.id)}
-              title={ctx.name}
-            >
-              {ctx.name}
-            </button>
-          ))}
+          {contexts.map((ctx) => {
+            const active = activeContextId === ctx.id;
+            const accent = ctx.color || 'rgba(255,255,255,0.18)';
+            return (
+              <button
+                key={ctx.id}
+                className="glass-button-secondary"
+                style={{
+                  ...styles.contextPill,
+                  borderColor: accent,
+                  ...(active
+                    ? {
+                        background: `${accent}30`,
+                        borderColor: accent,
+                        color: '#ffffff',
+                      }
+                    : {}),
+                }}
+                onClick={() => onSelectContext(ctx.id)}
+                title={ctx.name}
+              >
+                <span
+                  style={{
+                    ...styles.contextDot,
+                    backgroundColor: ctx.color || 'transparent',
+                    borderColor: accent,
+                  }}
+                />
+                {ctx.name}
+              </button>
+            );
+          })}
         </div>
+
+        {/* Controls for the active context (rename, color, delete). */}
+        {activeContextId !== null && (() => {
+          const ctx = contexts.find((c) => c.id === activeContextId);
+          if (!ctx) return null;
+          const isEditing = editingContextId === ctx.id;
+          return (
+            <div style={styles.contextControls} className="animate-fade-in">
+              {isEditing ? (
+                <input
+                  type="text"
+                  className="glass-input"
+                  style={styles.contextRenameInput}
+                  value={editingContextName}
+                  onChange={(e) => setEditingContextName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      commitEditContext();
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      cancelEditContext();
+                    }
+                  }}
+                  onBlur={commitEditContext}
+                  autoFocus
+                />
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    style={styles.contextControlBtn}
+                    onClick={() => startEditContext(ctx)}
+                    title="Renombrar contexto"
+                  >
+                    ✏️
+                  </button>
+                  <div style={styles.swatchRowInline}>
+                    {CONTEXT_COLORS.map((c) => (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => handleSetContextColor(ctx.id, c)}
+                        style={{
+                          ...styles.swatch,
+                          backgroundColor: c,
+                          ...(ctx.color === c ? styles.swatchActive : {}),
+                        }}
+                        title={c}
+                      />
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    style={styles.contextControlBtn}
+                    onClick={() => handleDeleteContextClick(ctx.id, ctx.name)}
+                    title="Borrar contexto"
+                  >
+                    🗑️
+                  </button>
+                </>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* Boards Section */}
@@ -440,11 +590,70 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 500,
     borderRadius: '999px',
     cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+  },
+  contextDot: {
+    width: '8px',
+    height: '8px',
+    borderRadius: '50%',
+    border: '1px solid',
+    flexShrink: 0,
   },
   activeContextPill: {
     background: 'rgba(99, 102, 241, 0.18)',
     borderColor: 'rgba(99, 102, 241, 0.45)',
     color: '#ffffff',
+  },
+  addContextForm: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    marginBottom: '12px',
+  },
+  swatchRow: {
+    display: 'flex',
+    gap: '6px',
+    flexWrap: 'wrap',
+  },
+  swatchRowInline: {
+    display: 'flex',
+    gap: '4px',
+    flexWrap: 'wrap',
+    flex: 1,
+  },
+  swatch: {
+    width: '18px',
+    height: '18px',
+    borderRadius: '50%',
+    border: '2px solid transparent',
+    cursor: 'pointer',
+    padding: 0,
+  },
+  swatchActive: {
+    border: '2px solid #ffffff',
+    boxShadow: '0 0 0 2px rgba(0,0,0,0.4)',
+  },
+  contextControls: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    marginTop: '8px',
+    padding: '6px 4px',
+  },
+  contextControlBtn: {
+    background: 'transparent',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: '13px',
+    padding: '4px 6px',
+    borderRadius: '6px',
+  },
+  contextRenameInput: {
+    flex: 1,
+    padding: '6px 10px',
+    fontSize: '12px',
   },
   boardsContainer: {
     flex: 1,
