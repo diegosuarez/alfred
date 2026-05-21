@@ -31,6 +31,15 @@ class Task(Base):
     # it but typically rely on column-based status.
     completed = Column(Boolean, nullable=False, default=False, server_default="0")
 
+    # Who asked for the task. SET NULL on contact delete so the task
+    # survives and just becomes "no requester".
+    requester_id = Column(
+        Integer,
+        ForeignKey("contacts.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 
@@ -50,6 +59,17 @@ class Task(Base):
         cascade="all, delete-orphan",
         order_by="Task.position",
         single_parent=True,
+    )
+    requester = relationship(
+        "Contact",
+        back_populates="requested_tasks",
+        foreign_keys=[requester_id],
+    )
+    assignees = relationship(
+        "Contact",
+        secondary="task_assignees",
+        back_populates="assigned_tasks",
+        order_by="Contact.name",
     )
 
     @property

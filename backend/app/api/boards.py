@@ -110,8 +110,14 @@ async def get_board_detail(
             selectinload(Board.columns)
             .selectinload(Column.tasks)
             .selectinload(Task.tags),
-            # Eager-load children + their tags / focus sessions so the
-            # nested rendering on the kanban card has everything it needs.
+            selectinload(Board.columns)
+            .selectinload(Column.tasks)
+            .selectinload(Task.requester),
+            selectinload(Board.columns)
+            .selectinload(Column.tasks)
+            .selectinload(Task.assignees),
+            # Eager-load children + their relationships so the nested
+            # rendering on the kanban card has everything it needs.
             selectinload(Board.columns)
             .selectinload(Column.tasks)
             .selectinload(Task.children)
@@ -120,6 +126,14 @@ async def get_board_detail(
             .selectinload(Column.tasks)
             .selectinload(Task.children)
             .selectinload(Task.focus_sessions),
+            selectinload(Board.columns)
+            .selectinload(Column.tasks)
+            .selectinload(Task.children)
+            .selectinload(Task.requester),
+            selectinload(Board.columns)
+            .selectinload(Column.tasks)
+            .selectinload(Task.children)
+            .selectinload(Task.assignees),
         )
     )
     board = result.scalars().first()

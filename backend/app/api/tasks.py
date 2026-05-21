@@ -9,6 +9,7 @@ from app.api.deps import get_current_user
 from app.database import get_db
 from app.models.board import Board
 from app.models.column import Column
+from app.models.contact import Contact
 from app.models.tag import Tag
 from app.models.task import Task
 from app.models.user import User
@@ -27,9 +28,53 @@ router = APIRouter(prefix="", tags=["tasks"])
 _TASK_LOAD_OPTIONS = [
     selectinload(Task.tags),
     selectinload(Task.focus_sessions),
+    selectinload(Task.requester),
+    selectinload(Task.assignees),
     selectinload(Task.children).selectinload(Task.tags),
     selectinload(Task.children).selectinload(Task.focus_sessions),
+    selectinload(Task.children).selectinload(Task.requester),
+    selectinload(Task.children).selectinload(Task.assignees),
 ]
+
+
+async def _fetch_caller_contact(
+    db: AsyncSession, user_id: int, contact_id: int
+) -> Contact:
+    """Return the contact if it belongs to the caller, otherwise 400."""
+    result = await db.execute(
+        select(Contact).filter(
+            Contact.id == contact_id, Contact.user_id == user_id
+        )
+    )
+    contact = result.scalars().first()
+    if not contact:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid contact id",
+        )
+    return contact
+
+
+async def _fetch_caller_contacts(
+    db: AsyncSession, user_id: int, contact_ids: List[int]
+) -> List[Contact]:
+    """Resolve a list of contact ids to rows, rejecting any that don't
+    belong to the caller. Returns them in the requested order."""
+    if not contact_ids:
+        return []
+    unique = list(dict.fromkeys(contact_ids))
+    result = await db.execute(
+        select(Contact).filter(
+            Contact.id.in_(unique), Contact.user_id == user_id
+        )
+    )
+    by_id = {c.id: c for c in result.scalars().all()}
+    if len(by_id) != len(unique):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="One or more assignee_ids are invalid",
+        )
+    return [by_id[i] for i in unique]
 
 
 async def _fetch_caller_tags(
@@ -117,6 +162,14 @@ async def create_task(
     next_position = (last_position + 1) if last_position is not None else 0
 
     tags = await _fetch_caller_tags(db, current_user.id, task_in.tag_ids)
+    assignees = await _fetch_caller_contacts(
+        db, current_user.id, task_in.assignee_ids
+    )
+    requester = None
+    if task_in.requester_id:
+        requester = await _fetch_caller_contact(
+            db, current_user.id, task_in.requester_id
+        )
 
     task = Task(
         title=task_in.title,
@@ -127,9 +180,12 @@ async def create_task(
         column_id=column_id,
         board_id=col.board_id,
         parent_task_id=parent_id,
+        requester_id=requester.id if requester else None,
     )
     if tags:
         task.tags = tags
+    if assignees:
+        task.assignees = assignees
     db.add(task)
     await db.commit()
     return await _hydrated_task(db, task.id)
@@ -157,6 +213,14 @@ async def create_subtask(
     next_position = (last_position + 1) if last_position is not None else 0
 
     tags = await _fetch_caller_tags(db, current_user.id, task_in.tag_ids)
+    assignees = await _fetch_caller_contacts(
+        db, current_user.id, task_in.assignee_ids
+    )
+    requester = None
+    if task_in.requester_id:
+        requester = await _fetch_caller_contact(
+            db, current_user.id, task_in.requester_id
+        )
 
     task = Task(
         title=task_in.title,
@@ -167,9 +231,12 @@ async def create_subtask(
         column_id=parent.column_id,
         board_id=parent.board_id,
         parent_task_id=parent.id,
+        requester_id=requester.id if requester else None,
     )
     if tags:
         task.tags = tags
+    if assignees:
+        task.assignees = assignees
     db.add(task)
     await db.commit()
     return await _hydrated_task(db, task.id)
@@ -182,13 +249,13 @@ async def update_task(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Eager-load tags so assigning task.tags = ... can diff the M2M
-    # without lazy-loading inside the async session.
+    # Eager-load tags / assignees so assigning either of them can diff
+    # the M2M without lazy-loading inside the async session.
     result = await db.execute(
         select(Task)
         .join(Board)
         .filter(Task.id == task_id, Board.user_id == current_user.id)
-        .options(selectinload(Task.tags))
+        .options(selectinload(Task.tags), selectinload(Task.assignees))
     )
     task = result.scalars().first()
     if not task:
@@ -242,6 +309,20 @@ async def update_task(
 
     if task_in.tag_ids is not None:
         task.tags = await _fetch_caller_tags(db, current_user.id, task_in.tag_ids)
+
+    if task_in.requester_id is not None:
+        if task_in.requester_id == 0:
+            task.requester_id = None
+        else:
+            contact = await _fetch_caller_contact(
+                db, current_user.id, task_in.requester_id
+            )
+            task.requester_id = contact.id
+
+    if task_in.assignee_ids is not None:
+        task.assignees = await _fetch_caller_contacts(
+            db, current_user.id, task_in.assignee_ids
+        )
 
     await db.commit()
     return await _hydrated_task(db, task.id)

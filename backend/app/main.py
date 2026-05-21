@@ -10,6 +10,7 @@ from sqlalchemy.future import select
 from app.api.auth import router as auth_router
 from app.api.boards import DEFAULT_CONTEXT_NAME, router as boards_router
 from app.api.columns import router as columns_router
+from app.api.contacts import router as contacts_router
 from app.api.contexts import router as contexts_router
 from app.api.focus import router as focus_router
 from app.api.google_accounts import router as google_accounts_router
@@ -40,6 +41,13 @@ async def _migrate_task_schema() -> None:
             await conn.execute(
                 text(
                     "ALTER TABLE tasks ADD COLUMN completed BOOLEAN NOT NULL DEFAULT 0"
+                )
+            )
+        if "requester_id" not in cols:
+            await conn.execute(
+                text(
+                    "ALTER TABLE tasks ADD COLUMN requester_id INTEGER "
+                    "REFERENCES contacts(id) ON DELETE SET NULL"
                 )
             )
 
@@ -145,6 +153,7 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/api")
 app.include_router(contexts_router, prefix="/api")
 app.include_router(google_accounts_router, prefix="/api")
+app.include_router(contacts_router, prefix="/api")
 app.include_router(tags_router, prefix="/api")
 app.include_router(boards_router, prefix="/api")
 app.include_router(columns_router, prefix="/api")

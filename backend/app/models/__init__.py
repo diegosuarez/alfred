@@ -8,6 +8,7 @@ from app.models.focus import FocusSession
 from app.models.google_account import GoogleAccount
 from app.models.tag import Tag, task_tags
 from app.models.personal_access_token import PersonalAccessToken
+from app.models.contact import Contact, task_assignees
 
 __all__ = [
     "Base",
@@ -21,4 +22,6 @@ __all__ = [
     "Tag",
     "task_tags",
     "PersonalAccessToken",
+    "Contact",
+    "task_assignees",
 ]

@@ -22,3 +22,6 @@ class User(Base):
     personal_access_tokens = relationship(
         "PersonalAccessToken", back_populates="user", cascade="all, delete-orphan"
     )
+    contacts = relationship(
+        "Contact", back_populates="user", cascade="all, delete-orphan"
+    )

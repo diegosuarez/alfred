@@ -3,6 +3,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.contact import ContactResponse
 from app.schemas.tag import TagResponse
 
 
@@ -21,6 +22,8 @@ class TaskCreate(TaskBase):
     # When set, the new task is created as a child of parent_task_id.
     parent_task_id: Optional[int] = None
     tag_ids: List[int] = []
+    requester_id: Optional[int] = None
+    assignee_ids: List[int] = []
 
 
 class TaskUpdate(BaseModel):
@@ -36,6 +39,11 @@ class TaskUpdate(BaseModel):
     # in our naive update flow.
     parent_task_id: Optional[int] = None
     tag_ids: Optional[List[int]] = None
+    # Same 0-sentinel trick for requester. None = no change, 0 = detach,
+    # positive int = set to that contact.
+    requester_id: Optional[int] = None
+    # Absent => no change. [] clears all. Non-empty replaces the set.
+    assignee_ids: Optional[List[int]] = None
 
 
 class TaskChildResponse(TaskBase):
@@ -54,6 +62,8 @@ class TaskChildResponse(TaskBase):
     updated_at: datetime
     total_focus_time: Optional[int] = 0
     tags: List[TagResponse] = []
+    requester: Optional[ContactResponse] = None
+    assignees: List[ContactResponse] = []
 
 
 class TaskResponse(TaskBase):
@@ -68,6 +78,8 @@ class TaskResponse(TaskBase):
     updated_at: datetime
     total_focus_time: Optional[int] = 0
     tags: List[TagResponse] = []
+    requester: Optional[ContactResponse] = None
+    assignees: List[ContactResponse] = []
     children: List[TaskChildResponse] = []
 
 
