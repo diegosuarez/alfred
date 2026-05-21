@@ -207,7 +207,10 @@ export const api = {
     }),
 
   // Contacts
-  getContacts: () => request('/contacts'),
+  getContacts: (contextId?: number) => {
+    const qs = contextId !== undefined ? `?context_id=${contextId}` : '';
+    return request(`/contacts${qs}`);
+  },
 
   createContact: (
     data: { name: string; email?: string; image_url?: string; is_favorite?: boolean },

@@ -1,6 +1,6 @@
-from typing import List
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -8,6 +8,7 @@ from sqlalchemy.future import select
 from app.api.deps import get_current_user
 from app.database import get_db
 from app.models.contact import Contact
+from app.models.context import Context
 from app.models.user import User
 from app.schemas.contact import ContactCreate, ContactResponse, ContactUpdate
 
@@ -16,15 +17,41 @@ router = APIRouter(prefix="/contacts", tags=["contacts"])
 
 @router.get("", response_model=List[ContactResponse])
 async def list_contacts(
+    context_id: Optional[int] = Query(default=None),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Favorites first, then alphabetically by name — matches the order the
-    # contact picker on the SPA will render.
+    """Favorites first, then alphabetical by name.
+
+    When `context_id` is given, narrow the list to contacts that came
+    from the Google account bound to that context (plus contacts not
+    tied to any account — typically the legacy manual ones). If the
+    context isn't bound to a Google account, no scoping is applied.
+    """
+    stmt = select(Contact).filter(Contact.user_id == current_user.id)
+
+    if context_id is not None:
+        ctx_result = await db.execute(
+            select(Context).filter(
+                Context.id == context_id, Context.user_id == current_user.id
+            )
+        )
+        ctx = ctx_result.scalars().first()
+        if not ctx:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Context not found",
+            )
+        if ctx.google_account_id is not None:
+            # Contact rows from this context's account, plus account-less
+            # ("manual") contacts that aren't tied to anything.
+            stmt = stmt.filter(
+                (Contact.google_account_id == ctx.google_account_id)
+                | (Contact.google_account_id.is_(None))
+            )
+
     result = await db.execute(
-        select(Contact)
-        .filter(Contact.user_id == current_user.id)
-        .order_by(Contact.is_favorite.desc(), Contact.name)
+        stmt.order_by(Contact.is_favorite.desc(), Contact.name)
     )
     return result.scalars().all()
 

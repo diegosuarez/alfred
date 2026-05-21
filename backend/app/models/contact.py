@@ -6,7 +6,6 @@ from sqlalchemy import (
     Integer,
     String,
     Table,
-    UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 
@@ -42,11 +41,10 @@ class Contact(Base):
     """
 
     __tablename__ = "contacts"
-    __table_args__ = (
-        # NULLs are distinct in unique constraints, so contacts without
-        # email are still allowed in any number.
-        UniqueConstraint("user_id", "email", name="uq_contact_user_email"),
-    )
+    # No uniqueness on (user_id, email) on purpose: the same person can
+    # legitimately appear in two Google accounts (personal + work) and
+    # we want each side to keep its own row scoped to its account so the
+    # picker can filter by context cleanly.
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)

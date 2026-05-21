@@ -187,15 +187,16 @@ async def test_sync_requires_contacts_scope(
     assert resp.status_code == 403
 
 
-async def test_sync_claims_existing_email_instead_of_crashing(
+async def test_sync_keeps_existing_email_as_separate_row(
     client: AsyncClient,
     auth_headers: dict[str, str],
     google_creds: None,
     mock_login: dict,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A manual contact with the same email shouldn't blow up the sync —
-    we promote it to Google-sourced and update its fields in place."""
+    """An existing contact with the same email is NOT touched. Each
+    Google account gets its own row so context-bound pickers stay
+    isolated."""
     account_id = await _connect_account_with_contacts_scope(client, auth_headers)
 
     # Pre-seed a manual contact with the email Google will return.
@@ -220,15 +221,122 @@ async def test_sync_claims_existing_email_instead_of_crashing(
         f"/api/google-accounts/{account_id}/sync-contacts", headers=auth_headers
     )
     assert resp.status_code == 200
-    body = resp.json()
-    assert body == {"added": 0, "updated": 1, "total": 1}
+    assert resp.json() == {"added": 1, "updated": 0, "total": 1}
 
     listed = (await client.get("/api/contacts", headers=auth_headers)).json()
-    assert len(listed) == 1
-    only = listed[0]
-    assert only["name"] == "Ada Lovelace"
-    assert only["source"] == "google"
-    assert only["google_account_id"] == account_id
+    assert len(listed) == 2
+    sources = {c["name"]: c["source"] for c in listed}
+    assert sources == {"Ada (local)": "manual", "Ada Lovelace": "google"}
+
+
+async def test_contacts_filter_by_context(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    google_creds: None,
+    mock_login: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET /contacts?context_id=N scopes to the account assigned to N."""
+    account_a_id = await _connect_account_with_contacts_scope(client, auth_headers)
+
+    async def fake_fetch_a(access_token: str) -> list[dict]:
+        return [
+            {
+                "resourceName": "people/work-1",
+                "names": [{"displayName": "Colleague"}],
+                "emailAddresses": [{"value": "co@work.com"}],
+            }
+        ]
+
+    monkeypatch.setattr(google_oauth, "fetch_google_contacts", fake_fetch_a)
+    await client.post(
+        f"/api/google-accounts/{account_a_id}/sync-contacts", headers=auth_headers
+    )
+
+    # Connect a SECOND google account (different sub) so we have two
+    # disjoint sets of contacts.
+    async def fake_exchange_b(code: str, redirect_uri: str) -> dict:
+        return {
+            "access_token": "second-access",
+            "refresh_token": "second-refresh",
+            "expires_in": 3600,
+            "scope": "openid email profile https://www.googleapis.com/auth/contacts.readonly",
+        }
+
+    async def fake_userinfo_b(access_token: str) -> dict:
+        return {"email": "personal@example.com", "sub": "second-sub"}
+
+    monkeypatch.setattr(google_oauth, "exchange_code_for_token", fake_exchange_b)
+    monkeypatch.setattr(google_oauth, "fetch_userinfo", fake_userinfo_b)
+
+    init = await client.post(
+        "/api/google-accounts/connect",
+        json={"extra_scopes": ["https://www.googleapis.com/auth/contacts.readonly"]},
+        headers=auth_headers,
+    )
+    state = init.json()["authorize_url"].split("state=")[1].split("&")[0]
+    await client.get(
+        f"/api/auth/google/callback?code=fake-code&state={state}",
+        follow_redirects=False,
+    )
+    accounts = (await client.get("/api/google-accounts", headers=auth_headers)).json()
+    account_b_id = next(a["id"] for a in accounts if a["id"] != account_a_id)
+
+    async def fake_fetch_b(access_token: str) -> list[dict]:
+        return [
+            {
+                "resourceName": "people/fam-1",
+                "names": [{"displayName": "Family"}],
+            }
+        ]
+
+    monkeypatch.setattr(google_oauth, "fetch_google_contacts", fake_fetch_b)
+    await client.post(
+        f"/api/google-accounts/{account_b_id}/sync-contacts", headers=auth_headers
+    )
+
+    # Make two contexts, bind each to one account.
+    work_ctx = (
+        await client.post(
+            "/api/contexts", json={"name": "Trabajo"}, headers=auth_headers
+        )
+    ).json()
+    personal_ctx = (
+        await client.post(
+            "/api/contexts", json={"name": "Personal"}, headers=auth_headers
+        )
+    ).json()
+    await client.put(
+        f"/api/contexts/{work_ctx['id']}",
+        json={"google_account_id": account_a_id},
+        headers=auth_headers,
+    )
+    await client.put(
+        f"/api/contexts/{personal_ctx['id']}",
+        json={"google_account_id": account_b_id},
+        headers=auth_headers,
+    )
+
+    # Unfiltered: both contacts visible.
+    all_listed = (await client.get("/api/contacts", headers=auth_headers)).json()
+    assert {c["name"] for c in all_listed} == {"Colleague", "Family"}
+
+    # Filtered by Trabajo: only the work account's contact.
+    work = (
+        await client.get(
+            f"/api/contacts?context_id={work_ctx['id']}", headers=auth_headers
+        )
+    ).json()
+    assert [c["name"] for c in work] == ["Colleague"]
+
+    # Filtered by Personal: only the family contact.
+    personal = (
+        await client.get(
+            f"/api/contacts?context_id={personal_ctx['id']}",
+            headers=auth_headers,
+        )
+    ).json()
+    assert [c["name"] for c in personal] == ["Family"]
 
 
 async def test_sync_rejects_foreign_account(

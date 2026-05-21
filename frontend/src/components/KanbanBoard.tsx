@@ -40,6 +40,7 @@ interface BoardDetail {
   id: number;
   name: string;
   description?: string;
+  context_id?: number | null;
   columns: Column[];
 }
 
@@ -97,9 +98,9 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
     }
   };
 
-  const fetchContacts = async () => {
+  const fetchContacts = async (contextId?: number | null) => {
     try {
-      const data = await api.getContacts();
+      const data = await api.getContacts(contextId ?? undefined);
       setAllContacts(data);
     } catch (err) {
       console.error('Error loading contacts:', err);
@@ -109,8 +110,16 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
   useEffect(() => {
     fetchBoardDetails();
     fetchTags();
-    fetchContacts();
   }, [boardId]);
+
+  // Re-scope the contact picker to this board's context whenever the
+  // board (re)loads. Contacts are partitioned by Google account, so
+  // the same picker shows different rows on Trabajo vs Personal.
+  useEffect(() => {
+    if (board) {
+      fetchContacts(board.context_id ?? null);
+    }
+  }, [board?.context_id]);
 
   // Close any open column kebab menu on any document click that isn't
   // inside the menu itself.

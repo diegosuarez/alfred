@@ -85,6 +85,13 @@ async def _migrate_task_schema() -> None:
                         "REFERENCES google_accounts(id) ON DELETE SET NULL"
                     )
                 )
+            # The unique-by-email index is gone: contacts are now scoped
+            # per Google account so the same email can legitimately
+            # repeat across accounts. SQLite stores constraints as
+            # indexes, so DROP INDEX kills it.
+            await conn.execute(
+                text("DROP INDEX IF EXISTS uq_contact_user_email")
+            )
 
         # If the legacy subtasks table still has rows, fold them in as
         # children of their parent task.

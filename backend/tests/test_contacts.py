@@ -63,20 +63,25 @@ async def test_contacts_sort_favorites_first(
     assert [c["name"] for c in listed] == ["Abe", "Marie", "Zoe"]
 
 
-async def test_duplicate_email_rejected(
+async def test_duplicate_email_allowed_for_cross_account_separation(
     client: AsyncClient, auth_headers: dict[str, str]
 ) -> None:
-    await client.post(
+    """Contacts are scoped per Google account now, so the same email can
+    legitimately exist twice (e.g. once per Google account)."""
+    a = await client.post(
         "/api/contacts",
         json={"name": "Ada", "email": "ada@example.com"},
         headers=auth_headers,
     )
-    dup = await client.post(
+    b = await client.post(
         "/api/contacts",
-        json={"name": "Ada 2", "email": "ada@example.com"},
+        json={"name": "Ada (work)", "email": "ada@example.com"},
         headers=auth_headers,
     )
-    assert dup.status_code == 400
+    assert a.status_code == 200
+    assert b.status_code == 200
+    listed = (await client.get("/api/contacts", headers=auth_headers)).json()
+    assert len(listed) == 2
 
 
 async def test_contacts_are_per_user(

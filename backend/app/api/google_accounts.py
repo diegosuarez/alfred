@@ -201,20 +201,21 @@ async def sync_google_contacts(
             detail=f"Could not reach Google contacts: {exc.__class__.__name__}",
         )
 
-    # Pre-fetch existing contacts so we can upsert without hitting the
-    # uq_contact_user_email constraint. We index by both google_contact_id
-    # (preferred match) and email (fallback — used to "claim" an existing
-    # row when it surfaces from Google for the first time).
+    # Contacts are scoped per Google account: we only "upsert" rows
+    # that already belong to THIS account, matched by google_contact_id.
+    # The same email appearing in another account stays a separate row
+    # so context-bound pickers can keep work and personal contacts apart.
     existing_result = await db.execute(
-        select(Contact).filter(Contact.user_id == current_user.id)
+        select(Contact).filter(
+            Contact.user_id == current_user.id,
+            Contact.google_account_id == account.id,
+        )
     )
-    all_existing = existing_result.scalars().all()
     by_rid = {
         c.google_contact_id: c
-        for c in all_existing
-        if c.google_contact_id and c.google_account_id == account.id
+        for c in existing_result.scalars().all()
+        if c.google_contact_id
     }
-    by_email = {c.email: c for c in all_existing if c.email}
 
     added = 0
     updated = 0
@@ -226,12 +227,6 @@ async def sync_google_contacts(
         email = fields["email"]
 
         row = by_rid.get(rid)
-        if row is None and email and email in by_email:
-            # An existing contact (manual or from another account) carries
-            # the same email — adopt it under this account instead of
-            # crashing on the unique-by-email constraint.
-            row = by_email[email]
-
         if row is None:
             row = Contact(
                 user_id=current_user.id,
@@ -243,8 +238,6 @@ async def sync_google_contacts(
                 image_url=fields["image_url"],
             )
             db.add(row)
-            if email:
-                by_email[email] = row
             by_rid[rid] = row
             added += 1
         else:
@@ -253,15 +246,6 @@ async def sync_google_contacts(
                 if getattr(row, key) != fields[key]:
                     setattr(row, key, fields[key])
                     changed = True
-            if row.source != "google":
-                row.source = "google"
-                changed = True
-            if row.google_account_id != account.id:
-                row.google_account_id = account.id
-                changed = True
-            if row.google_contact_id != rid:
-                row.google_contact_id = rid
-                changed = True
             if changed:
                 updated += 1
 
