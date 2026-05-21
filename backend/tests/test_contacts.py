@@ -22,7 +22,11 @@ async def _make_task(client: AsyncClient, headers: dict[str, str]) -> int:
 async def test_create_and_list_contacts(
     client: AsyncClient, auth_headers: dict[str, str]
 ) -> None:
-    assert (await client.get("/api/contacts", headers=auth_headers)).json() == []
+    # The 'Yo mismo' self-contact is auto-created on register.
+    listed = (await client.get("/api/contacts", headers=auth_headers)).json()
+    assert len(listed) == 1
+    assert listed[0]["name"] == "Yo mismo"
+    assert listed[0]["is_self"] is True
 
     resp = await client.post(
         "/api/contacts",
@@ -38,6 +42,7 @@ async def test_create_and_list_contacts(
     assert body["name"] == "Ada Lovelace"
     assert body["email"] == "ada@example.com"
     assert body["is_favorite"] is False
+    assert body["is_self"] is False
 
 
 async def test_contacts_sort_favorites_first(
@@ -60,7 +65,8 @@ async def test_contacts_sort_favorites_first(
     )
 
     listed = (await client.get("/api/contacts", headers=auth_headers)).json()
-    assert [c["name"] for c in listed] == ["Abe", "Marie", "Zoe"]
+    # 'Yo mismo' sorts ahead of favorites; favorites then beat plain by name.
+    assert [c["name"] for c in listed] == ["Yo mismo", "Abe", "Marie", "Zoe"]
 
 
 async def test_duplicate_email_allowed_for_cross_account_separation(
@@ -81,7 +87,8 @@ async def test_duplicate_email_allowed_for_cross_account_separation(
     assert a.status_code == 200
     assert b.status_code == 200
     listed = (await client.get("/api/contacts", headers=auth_headers)).json()
-    assert len(listed) == 2
+    # Two Adas + 'Yo mismo'.
+    assert len(listed) == 3
 
 
 async def test_contacts_are_per_user(
@@ -102,7 +109,10 @@ async def test_contacts_are_per_user(
         data={"username": "other@example.com", "password": "longenough"},
     )
     other = {"Authorization": f"Bearer {login.json()['access_token']}"}
-    assert (await client.get("/api/contacts", headers=other)).json() == []
+    # The second user has only their own 'Yo mismo'; no leak from Alice.
+    listed = (await client.get("/api/contacts", headers=other)).json()
+    assert [c["name"] for c in listed] == ["Yo mismo"]
+    assert listed[0]["email"] == "other@example.com"
 
 
 async def test_create_task_with_requester_and_assignees(
@@ -279,7 +289,12 @@ async def test_board_detail_includes_contacts(
     ).json()
     await client.post(
         f"/api/columns/{col_id}/tasks",
-        json={"title": "Has requester", "requester_id": boss["id"]},
+        # No assignee_ids → default to self contact. Pass [] to opt out.
+        json={
+            "title": "Has requester",
+            "requester_id": boss["id"],
+            "assignee_ids": [],
+        },
         headers=auth_headers,
     )
 
@@ -288,4 +303,54 @@ async def test_board_detail_includes_contacts(
     ).json()
     task = refreshed["columns"][0]["tasks"][0]
     assert task["requester"]["name"] == "Boss"
+    assert task["assignees"] == []
+
+
+async def test_self_contact_cannot_be_deleted(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    listed = (await client.get("/api/contacts", headers=auth_headers)).json()
+    me = next(c for c in listed if c["is_self"])
+    resp = await client.delete(f"/api/contacts/{me['id']}", headers=auth_headers)
+    assert resp.status_code == 400
+
+
+async def test_new_task_defaults_to_self_assignee(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    board = (
+        await client.post("/api/boards", json={"name": "B"}, headers=auth_headers)
+    ).json()
+    col_id = (
+        await client.get(f"/api/boards/{board['id']}", headers=auth_headers)
+    ).json()["columns"][0]["id"]
+
+    task = (
+        await client.post(
+            f"/api/columns/{col_id}/tasks",
+            json={"title": "Default-assignee"},
+            headers=auth_headers,
+        )
+    ).json()
+    assert len(task["assignees"]) == 1
+    assert task["assignees"][0]["is_self"] is True
+
+
+async def test_new_task_can_opt_out_of_self_assignee(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    board = (
+        await client.post("/api/boards", json={"name": "B"}, headers=auth_headers)
+    ).json()
+    col_id = (
+        await client.get(f"/api/boards/{board['id']}", headers=auth_headers)
+    ).json()["columns"][0]["id"]
+
+    task = (
+        await client.post(
+            f"/api/columns/{col_id}/tasks",
+            json={"title": "No-assignee", "assignee_ids": []},
+            headers=auth_headers,
+        )
+    ).json()
     assert task["assignees"] == []

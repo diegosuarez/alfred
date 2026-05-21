@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.future import select
 
+from app.api.attachments import router as attachments_router
 from app.api.auth import router as auth_router
 from app.api.boards import DEFAULT_CONTEXT_NAME, router as boards_router
 from app.api.columns import router as columns_router
@@ -23,11 +24,14 @@ from app.api.tags import router as tags_router
 from app.api.tasks import router as tasks_router
 from app.core.time import utcnow
 from app.database import AsyncSessionLocal, Base, engine
+from app.models.attachment import Attachment  # noqa: F401  (registers mapper)
 from app.models.board import Board
+from app.models.contact import Contact
 from app.models.context import Context
 from app.models.push_subscription import PushSubscription
 from app.models.reminder import Reminder
 from app.models.task import Task
+from app.models.user import User
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +68,42 @@ async def _migrate_task_schema() -> None:
             await conn.execute(
                 text("ALTER TABLE tasks ADD COLUMN archived_at DATETIME")
             )
+
+        # Attachments table: created by Base.metadata.create_all if absent,
+        # but we explicitly ensure the storage directory exists too.
+        try:
+            os.makedirs("data/attachments", exist_ok=True)
+        except OSError as exc:
+            log.warning("Could not create data/attachments: %s", exc)
+
+        # Board.icon — per-board sidebar emoji.
+        board_result = await conn.execute(text("PRAGMA table_info(boards)"))
+        board_cols = {row[1] for row in board_result.fetchall()}
+        if "icon" not in board_cols:
+            await conn.execute(
+                text("ALTER TABLE boards ADD COLUMN icon VARCHAR(16)")
+            )
+
+        # GoogleAccount profile snapshot.
+        ga_table = (
+            await conn.execute(
+                text(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type='table' AND name='google_accounts'"
+                )
+            )
+        ).fetchall()
+        if ga_table:
+            ga_result = await conn.execute(text("PRAGMA table_info(google_accounts)"))
+            ga_cols = {row[1] for row in ga_result.fetchall()}
+            if "display_name" not in ga_cols:
+                await conn.execute(
+                    text("ALTER TABLE google_accounts ADD COLUMN display_name VARCHAR")
+                )
+            if "picture_url" not in ga_cols:
+                await conn.execute(
+                    text("ALTER TABLE google_accounts ADD COLUMN picture_url VARCHAR")
+                )
 
         # Reminder.sent_at lands here because reminders may pre-exist.
         rem_table = (
@@ -112,13 +152,86 @@ async def _migrate_task_schema() -> None:
                         "REFERENCES google_accounts(id) ON DELETE SET NULL"
                     )
                 )
-            # The unique-by-email index is gone: contacts are now scoped
-            # per Google account so the same email can legitimately
-            # repeat across accounts. SQLite stores constraints as
-            # indexes, so DROP INDEX kills it.
+            if "is_self" not in ccols:
+                await conn.execute(
+                    text(
+                        "ALTER TABLE contacts ADD COLUMN is_self BOOLEAN "
+                        "NOT NULL DEFAULT 0"
+                    )
+                )
+            # The unique-by-email constraint is gone: contacts are now
+            # scoped per Google account so the same email can legitimately
+            # repeat across accounts. The named index drop covers the
+            # easy case; the rebuild block below handles anonymous
+            # table-level UNIQUE constraints that DROP INDEX can't
+            # touch.
             await conn.execute(
                 text("DROP INDEX IF EXISTS uq_contact_user_email")
             )
+            idx_rows = (
+                await conn.execute(text("PRAGMA index_list('contacts')"))
+            ).fetchall()
+            needs_rebuild = False
+            for row in idx_rows:
+                # PRAGMA index_list cols: (seq, name, unique, origin, partial)
+                if row[2] != 1:
+                    continue
+                info = (
+                    await conn.execute(
+                        text(f"PRAGMA index_info('{row[1]}')")
+                    )
+                ).fetchall()
+                cols_in_idx = sorted(r[2] for r in info)
+                if cols_in_idx == ["email", "user_id"]:
+                    needs_rebuild = True
+                    break
+            if needs_rebuild:
+                # Rebuild contacts without the offending constraint.
+                # FK rows in task_assignees / tasks.requester_id stay valid
+                # because we preserve the primary keys.
+                await conn.execute(
+                    text(
+                        "CREATE TABLE contacts_new ("
+                        "id INTEGER PRIMARY KEY, "
+                        "user_id INTEGER NOT NULL "
+                        "REFERENCES users(id) ON DELETE CASCADE, "
+                        "name VARCHAR NOT NULL, "
+                        "email VARCHAR, "
+                        "image_url VARCHAR, "
+                        "is_favorite BOOLEAN NOT NULL DEFAULT 0, "
+                        "is_self BOOLEAN NOT NULL DEFAULT 0, "
+                        "source VARCHAR NOT NULL DEFAULT 'manual', "
+                        "google_contact_id VARCHAR, "
+                        "google_account_id INTEGER "
+                        "REFERENCES google_accounts(id) ON DELETE SET NULL, "
+                        "created_at DATETIME, "
+                        "updated_at DATETIME"
+                        ")"
+                    )
+                )
+                await conn.execute(
+                    text(
+                        "INSERT INTO contacts_new "
+                        "(id, user_id, name, email, image_url, is_favorite, "
+                        "is_self, source, google_contact_id, "
+                        "google_account_id, created_at, updated_at) "
+                        "SELECT id, user_id, name, email, image_url, "
+                        "is_favorite, is_self, source, google_contact_id, "
+                        "google_account_id, created_at, updated_at "
+                        "FROM contacts"
+                    )
+                )
+                await conn.execute(text("DROP TABLE contacts"))
+                await conn.execute(
+                    text("ALTER TABLE contacts_new RENAME TO contacts")
+                )
+                await conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS "
+                        "ix_contacts_google_contact_id "
+                        "ON contacts(google_contact_id)"
+                    )
+                )
 
         # If the legacy subtasks table still has rows, fold them in as
         # children of their parent task.
@@ -144,6 +257,29 @@ async def _migrate_task_schema() -> None:
                 )
             )
             await conn.execute(text("DROP TABLE subtasks"))
+
+
+async def _backfill_self_contacts() -> None:
+    """Ensure every existing user has a 'Yo mismo' contact. Idempotent;
+    runs on every boot so users predating the feature pick one up."""
+    from app.core.self_contact import ensure_self_contact
+
+    async with AsyncSessionLocal() as session:
+        users = (await session.execute(select(User))).scalars().all()
+        created = False
+        for user in users:
+            before = (
+                await session.execute(
+                    select(Contact).filter(
+                        Contact.user_id == user.id, Contact.is_self.is_(True)
+                    )
+                )
+            ).scalars().first()
+            if before is None:
+                await ensure_self_contact(session, user)
+                created = True
+        if created:
+            await session.commit()
 
 
 async def _backfill_legacy_boards() -> None:
@@ -279,6 +415,7 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
     await _migrate_task_schema()
     await _backfill_legacy_boards()
+    await _backfill_self_contacts()
     stop_event = asyncio.Event()
     dispatch_task = asyncio.create_task(_reminder_dispatch_loop(stop_event))
     try:
@@ -324,6 +461,7 @@ app.include_router(tags_router, prefix="/api")
 app.include_router(boards_router, prefix="/api")
 app.include_router(columns_router, prefix="/api")
 app.include_router(tasks_router, prefix="/api")
+app.include_router(attachments_router, prefix="/api")
 app.include_router(pats_router, prefix="/api")
 app.include_router(reminders_router, prefix="/api")
 app.include_router(push_router, prefix="/api")

@@ -84,7 +84,7 @@ async def test_sync_creates_contacts_from_people_api(
     assert resp.json() == {"added": 2, "updated": 0, "total": 2}
 
     listed = (await client.get("/api/contacts", headers=auth_headers)).json()
-    names = {c["name"] for c in listed}
+    names = {c["name"] for c in listed if not c["is_self"]}
     assert names == {"Ada Lovelace", "Grace Hopper"}
     ada = next(c for c in listed if c["name"] == "Ada Lovelace")
     assert ada["source"] == "google"
@@ -143,9 +143,10 @@ async def test_sync_is_idempotent_and_updates_existing(
     assert third == {"added": 0, "updated": 1, "total": 1}
 
     listed = (await client.get("/api/contacts", headers=auth_headers)).json()
-    assert len(listed) == 1
-    assert listed[0]["name"] == "Ada Lovelace"
-    assert listed[0]["email"] == "ada+new@example.com"
+    non_self = [c for c in listed if not c["is_self"]]
+    assert len(non_self) == 1
+    assert non_self[0]["name"] == "Ada Lovelace"
+    assert non_self[0]["email"] == "ada+new@example.com"
 
 
 async def test_sync_requires_contacts_scope(
@@ -223,7 +224,11 @@ async def test_sync_keeps_existing_email_as_separate_row(
     assert resp.status_code == 200
     assert resp.json() == {"added": 1, "updated": 0, "total": 1}
 
-    listed = (await client.get("/api/contacts", headers=auth_headers)).json()
+    listed = [
+        c
+        for c in (await client.get("/api/contacts", headers=auth_headers)).json()
+        if not c["is_self"]
+    ]
     assert len(listed) == 2
     sources = {c["name"]: c["source"] for c in listed}
     assert sources == {"Ada (local)": "manual", "Ada Lovelace": "google"}
@@ -317,17 +322,22 @@ async def test_contacts_filter_by_context(
         headers=auth_headers,
     )
 
-    # Unfiltered: both contacts visible.
+    # Unfiltered: both contacts visible alongside the self-contact.
     all_listed = (await client.get("/api/contacts", headers=auth_headers)).json()
-    assert {c["name"] for c in all_listed} == {"Colleague", "Family"}
+    assert {c["name"] for c in all_listed if not c["is_self"]} == {
+        "Colleague",
+        "Family",
+    }
 
-    # Filtered by Trabajo: only the work account's contact.
+    # Filtered by Trabajo: only the work account's contact. The self
+    # contact must always show through regardless of the context scope.
     work = (
         await client.get(
             f"/api/contacts?context_id={work_ctx['id']}", headers=auth_headers
         )
     ).json()
-    assert [c["name"] for c in work] == ["Colleague"]
+    assert [c["name"] for c in work if not c["is_self"]] == ["Colleague"]
+    assert any(c["is_self"] for c in work)
 
     # Filtered by Personal: only the family contact.
     personal = (
@@ -336,7 +346,8 @@ async def test_contacts_filter_by_context(
             headers=auth_headers,
         )
     ).json()
-    assert [c["name"] for c in personal] == ["Family"]
+    assert [c["name"] for c in personal if not c["is_self"]] == ["Family"]
+    assert any(c["is_self"] for c in personal)
 
 
 async def test_sync_rejects_foreign_account(

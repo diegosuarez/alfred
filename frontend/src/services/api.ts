@@ -150,10 +150,17 @@ export const api = {
   getBoardDetail: (boardId: number) => 
     request(`/boards/${boardId}`),
 
-  updateBoard: (boardId: number, name: string, description?: string) => 
+  updateBoard: (boardId: number, name: string, description?: string) =>
     request(`/boards/${boardId}`, {
       method: 'PUT',
       body: JSON.stringify({ name, description }),
+    }),
+
+  // Pass an empty string to clear back to the default folder fallback.
+  setBoardIcon: (boardId: number, icon: string) =>
+    request(`/boards/${boardId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ icon }),
     }),
 
   deleteBoard: (boardId: number) => 
@@ -332,6 +339,19 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ title }),
     }),
+
+  // Attachments
+  uploadAttachment: (taskId: number, file: File) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    return request(`/tasks/${taskId}/attachments`, {
+      method: 'POST',
+      body: fd,
+    });
+  },
+
+  deleteAttachment: (attachmentId: number) =>
+    request(`/attachments/${attachmentId}`, { method: 'DELETE' }),
 
   // Focus (Pomodoro)
   createFocusSession: (taskId: number, duration: number) => 

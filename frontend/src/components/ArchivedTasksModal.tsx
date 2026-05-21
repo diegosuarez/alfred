@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface ArchivedTask {
   id: number;
@@ -25,6 +26,7 @@ export const ArchivedTasksModal: React.FC<ArchivedTasksModalProps> = ({
 }) => {
   const [tasks, setTasks] = useState<ArchivedTask[]>([]);
   const [loading, setLoading] = useState(true);
+  useEscapeKey(onClose);
 
   const load = async () => {
     try {

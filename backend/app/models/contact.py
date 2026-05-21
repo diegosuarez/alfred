@@ -55,6 +55,11 @@ class Contact(Base):
     is_favorite = Column(
         Boolean, nullable=False, default=False, server_default="0"
     )
+    # The synthetic "Yo mismo" row, one per user — always shown regardless
+    # of context scoping and used as the default assignee for new tasks.
+    is_self = Column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
     # 'manual' (created by hand via API) or 'google' (synced from a
     # Google account via the People API).
     source = Column(

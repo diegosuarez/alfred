@@ -82,6 +82,12 @@ class Task(Base):
         cascade="all, delete-orphan",
         order_by="Reminder.remind_at",
     )
+    attachments = relationship(
+        "Attachment",
+        back_populates="task",
+        cascade="all, delete-orphan",
+        order_by="Attachment.created_at",
+    )
 
     @property
     def total_focus_time(self) -> int:

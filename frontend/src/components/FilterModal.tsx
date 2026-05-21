@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ContactPicker, type Contact } from './ContactPicker';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 export interface Filters {
   query: string;
@@ -46,6 +47,7 @@ export const FilterModal: React.FC<FilterModalProps> = ({
 }) => {
   // Local draft so the user can iterate before applying.
   const [draft, setDraft] = useState<Filters>({ ...filters });
+  useEscapeKey(onClose);
 
   const toggleTag = (id: number) => {
     setDraft((d) => ({
@@ -112,7 +114,7 @@ export const FilterModal: React.FC<FilterModalProps> = ({
               />
             </div>
             <div style={styles.col}>
-              <label style={styles.label}>Delegada en</label>
+              <label style={styles.label}>Asignado a</label>
               <ContactPicker
                 multi
                 contacts={contacts}

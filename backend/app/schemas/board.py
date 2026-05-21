@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from app.core.time import UtcDatetime
 from typing import Optional
 
@@ -6,6 +6,10 @@ from typing import Optional
 class BoardBase(BaseModel):
     name: str
     description: Optional[str] = None
+    # Single emoji used as the board's icon in the sidebar. Cap at 16
+    # chars to absorb ZWJ-compound emojis (family, flags, etc.) without
+    # letting the user store arbitrary text.
+    icon: Optional[str] = Field(default=None, max_length=16)
 
 
 class BoardCreate(BoardBase):
@@ -19,6 +23,9 @@ class BoardUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     context_id: Optional[int] = None
+    # An explicit empty string clears the icon back to the default; None
+    # (field omitted) leaves it untouched.
+    icon: Optional[str] = Field(default=None, max_length=16)
 
 
 class BoardResponse(BoardBase):

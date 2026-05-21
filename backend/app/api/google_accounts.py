@@ -84,7 +84,52 @@ async def list_google_accounts(
         .filter(GoogleAccount.user_id == current_user.id)
         .order_by(GoogleAccount.id)
     )
-    return result.scalars().all()
+    accounts = list(result.scalars().all())
+
+    # Lazy backfill: rows connected before we started snapshotting the
+    # profile have NULL display_name/picture_url. Refresh from userinfo
+    # once so the UI doesn't require a re-login. Failures are swallowed
+    # to keep the listing endpoint reliable.
+    mutated = False
+    for account in accounts:
+        if account.display_name and account.picture_url:
+            continue
+        if not (account.access_token or account.refresh_token):
+            continue
+        try:
+            token = await _valid_access_token(db, account)
+            userinfo = await google_oauth.fetch_userinfo(token)
+        except Exception as exc:  # noqa: BLE001
+            log.info("userinfo backfill failed for account %s: %s", account.id, exc)
+            continue
+        if userinfo.get("name") and not account.display_name:
+            account.display_name = userinfo["name"]
+            mutated = True
+        if userinfo.get("picture") and not account.picture_url:
+            account.picture_url = userinfo["picture"]
+            mutated = True
+    # Mirror the earliest Google account's avatar onto the 'Yo mismo'
+    # contact so the picker shows the user the same face they see in
+    # the sidebar profile. No-op if the self contact is already in sync.
+    if accounts and accounts[0].picture_url:
+        self_contact = (
+            await db.execute(
+                select(Contact).filter(
+                    Contact.user_id == current_user.id,
+                    Contact.is_self.is_(True),
+                )
+            )
+        ).scalars().first()
+        if self_contact and self_contact.image_url != accounts[0].picture_url:
+            self_contact.image_url = accounts[0].picture_url
+            mutated = True
+
+    if mutated:
+        await db.commit()
+        for account in accounts:
+            await db.refresh(account)
+
+    return accounts
 
 
 @router.post("/connect", response_model=ConnectGoogleAccountResponse)
@@ -201,21 +246,42 @@ async def sync_google_contacts(
             detail=f"Could not reach Google contacts: {exc.__class__.__name__}",
         )
 
-    # Contacts are scoped per Google account: we only "upsert" rows
-    # that already belong to THIS account, matched by google_contact_id.
-    # The same email appearing in another account stays a separate row
-    # so context-bound pickers can keep work and personal contacts apart.
+    # Match existing rows by google_contact_id, scoped to this user
+    # (any account, plus orphans where google_account_id is NULL). This
+    # makes the upsert idempotent across re-syncs even when legacy rows
+    # lost their account binding during an earlier migration.
     existing_result = await db.execute(
         select(Contact).filter(
             Contact.user_id == current_user.id,
-            Contact.google_account_id == account.id,
+            Contact.google_contact_id.is_not(None),
+            (
+                (Contact.google_account_id == account.id)
+                | (Contact.google_account_id.is_(None))
+            ),
         )
     )
-    by_rid = {
-        c.google_contact_id: c
-        for c in existing_result.scalars().all()
-        if c.google_contact_id
-    }
+    # If duplicates already exist for the same rid (from earlier broken
+    # syncs), keep the oldest one as the canonical row and queue the
+    # rest for deletion so the table self-heals on the next sync.
+    by_rid: dict[str, Contact] = {}
+    extras_to_delete: list[Contact] = []
+    for c in sorted(existing_result.scalars().all(), key=lambda r: r.id):
+        rid = c.google_contact_id
+        if rid is None:
+            continue
+        if rid in by_rid:
+            extras_to_delete.append(c)
+        else:
+            by_rid[rid] = c
+
+    for dup in extras_to_delete:
+        log.info(
+            "Dropping duplicate Google contact row %s (rid=%s) for account %s",
+            dup.id,
+            dup.google_contact_id,
+            account.id,
+        )
+        await db.delete(dup)
 
     added = 0
     updated = 0
@@ -242,6 +308,14 @@ async def sync_google_contacts(
             added += 1
         else:
             changed = False
+            # Reclaim any orphan or cross-account row by binding it to
+            # the current account; counts as an update for visibility.
+            if row.google_account_id != account.id:
+                row.google_account_id = account.id
+                changed = True
+            if row.source != "google":
+                row.source = "google"
+                changed = True
             for key in ("name", "email", "image_url"):
                 if getattr(row, key) != fields[key]:
                     setattr(row, key, fields[key])

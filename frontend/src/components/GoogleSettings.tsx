@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface GoogleAccount {
   id: number;
@@ -37,6 +38,7 @@ export const GoogleSettings: React.FC<GoogleSettingsProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
+  useEscapeKey(onClose);
 
   const loadAccounts = async () => {
     try {

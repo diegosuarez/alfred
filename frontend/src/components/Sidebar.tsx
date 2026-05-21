@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
 
+import { EmojiPicker } from './EmojiPicker';
+
 interface Board {
   id: number;
   name: string;
   description?: string;
+  icon?: string | null;
   context_id: number | null;
 }
 
@@ -40,12 +43,16 @@ interface SidebarProps {
   onChangeView: (view: 'board' | 'stats') => void;
   onCreateBoard: (name: string) => Promise<void>;
   onRenameBoard: (id: number, name: string) => Promise<void>;
+  onSetBoardIcon: (id: number, icon: string) => Promise<void>;
   onDeleteBoard: (id: number) => Promise<void>;
   onOpenSettings: () => void;
   onOpenTokens: () => void;
   onOpenContacts: () => void;
   onLogout: () => void;
   userEmail: string;
+  // Fall back to userEmail when these are null (no Google account connected).
+  userName?: string | null;
+  userPicture?: string | null;
   style?: React.CSSProperties;
   onCloseMobileSidebar?: () => void;
 }
@@ -64,12 +71,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onChangeView,
   onCreateBoard,
   onRenameBoard,
+  onSetBoardIcon,
   onDeleteBoard,
   onOpenSettings,
   onOpenTokens,
   onOpenContacts,
   onLogout,
   userEmail,
+  userName,
+  userPicture,
   style,
   onCloseMobileSidebar,
 }) => {
@@ -82,6 +92,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [editingContextName, setEditingContextName] = useState('');
   const [editingBoardId, setEditingBoardId] = useState<number | null>(null);
   const [editingBoardName, setEditingBoardName] = useState('');
+  const [iconPickerBoardId, setIconPickerBoardId] = useState<number | null>(null);
+  const [boardMenuOpenId, setBoardMenuOpenId] = useState<number | null>(null);
+
+  React.useEffect(() => {
+    if (boardMenuOpenId === null) return;
+    const close = () => setBoardMenuOpenId(null);
+    document.addEventListener('click', close);
+    return () => document.removeEventListener('click', close);
+  }, [boardMenuOpenId]);
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
 
@@ -182,25 +201,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div style={styles.header}>
         <img src="/logo.png" alt="Alfred" style={styles.logoBadge} />
         <h2 style={styles.logoTitle}>Alfred</h2>
-      </div>
-
-      {/* Main Views Navigation */}
-      <div style={styles.navigation}>
-        <h3 style={styles.navLabel}>General</h3>
-        <button
-          className="glass-button-secondary"
-          style={{
-            ...styles.navBtn,
-            ...(currentView === 'stats' ? styles.activeNavBtn : {}),
-          }}
-          onClick={() => {
-            onChangeView('stats');
-            onCloseMobileSidebar?.();
-          }}
-        >
-          <span style={styles.navIcon}>📊</span>
-          <span>Estadísticas</span>
-        </button>
       </div>
 
       {/* Contexts Section */}
@@ -427,6 +427,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {boards.map((board) => {
             const isActive = currentView === 'board' && activeBoardId === board.id;
             const isEditing = editingBoardId === board.id;
+            const isPickingIcon = iconPickerBoardId === board.id;
             return (
               <div
                 key={board.id}
@@ -435,6 +436,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   ...styles.boardBtn,
                   ...(isActive ? styles.activeBoardBtn : {}),
                   cursor: isEditing ? 'default' : 'pointer',
+                  position: 'relative',
                 }}
                 onClick={() => {
                   if (isEditing) return;
@@ -443,7 +445,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onCloseMobileSidebar?.();
                 }}
               >
-                <span style={styles.boardIcon}>📁</span>
+                <span style={styles.boardIcon}>{board.icon || '📁'}</span>
                 {isEditing ? (
                   <input
                     type="text"
@@ -468,30 +470,85 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <>
                     <span style={styles.boardName}>{board.name}</span>
                     <span style={styles.boardActions}>
+                      {boardMenuOpenId === board.id && (
+                        <>
+                          <button
+                            type="button"
+                            style={styles.boardActionBtn}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setIconPickerBoardId(isPickingIcon ? null : board.id);
+                              setBoardMenuOpenId(null);
+                            }}
+                            title="Cambiar icono"
+                          >
+                            🎨
+                          </button>
+                          <button
+                            type="button"
+                            style={styles.boardActionBtn}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              startEditBoard(board.id, board.name);
+                              setBoardMenuOpenId(null);
+                            }}
+                            title="Renombrar"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            type="button"
+                            style={styles.boardActionBtn}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteBoardClick(board.id, board.name);
+                              setBoardMenuOpenId(null);
+                            }}
+                            title="Borrar"
+                          >
+                            🗑️
+                          </button>
+                        </>
+                      )}
                       <button
                         type="button"
-                        style={styles.boardActionBtn}
+                        style={{
+                          ...styles.boardActionBtn,
+                          ...(boardMenuOpenId === board.id
+                            ? styles.boardActionBtnActive
+                            : {}),
+                        }}
                         onClick={(e) => {
                           e.stopPropagation();
-                          startEditBoard(board.id, board.name);
+                          setBoardMenuOpenId(
+                            boardMenuOpenId === board.id ? null : board.id,
+                          );
                         }}
-                        title="Renombrar"
+                        title={
+                          boardMenuOpenId === board.id
+                            ? 'Ocultar opciones'
+                            : 'Opciones del tablero'
+                        }
                       >
-                        ✏️
-                      </button>
-                      <button
-                        type="button"
-                        style={styles.boardActionBtn}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteBoardClick(board.id, board.name);
-                        }}
-                        title="Borrar"
-                      >
-                        🗑️
+                        ⋯
                       </button>
                     </span>
                   </>
+                )}
+                {isPickingIcon && (
+                  <EmojiPicker
+                    current={board.icon || undefined}
+                    style={styles.iconPickerFloat}
+                    onSelect={async (emoji) => {
+                      setIconPickerBoardId(null);
+                      await onSetBoardIcon(board.id, emoji);
+                    }}
+                    onClear={async () => {
+                      setIconPickerBoardId(null);
+                      await onSetBoardIcon(board.id, '');
+                    }}
+                    onClose={() => setIconPickerBoardId(null)}
+                  />
                 )}
               </div>
             );
@@ -502,6 +559,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
+      {/* Bottom utilities: stats sits just above the profile block — it
+          rarely opens day-to-day, so it lives out of the way at the
+          bottom of the sidebar. */}
+      <button
+        className="glass-button-secondary"
+        style={{
+          ...styles.statsBtn,
+          ...(currentView === 'stats' ? styles.activeNavBtn : {}),
+        }}
+        onClick={() => {
+          onChangeView('stats');
+          onCloseMobileSidebar?.();
+        }}
+      >
+        <span style={styles.navIcon}>📊</span>
+        <span>Estadísticas</span>
+      </button>
+
       {/* User Session Area — collapsed by default to keep the sidebar
           quiet. The user row toggles open the actions block. */}
       <div style={styles.userFooter}>
@@ -511,10 +586,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
           onClick={() => setProfileOpen((o) => !o)}
           title={profileOpen ? 'Ocultar opciones de perfil' : 'Opciones de perfil'}
         >
-          <div style={styles.avatar}>👤</div>
+          {userPicture ? (
+            <img
+              src={userPicture}
+              alt=""
+              referrerPolicy="no-referrer"
+              style={styles.avatarImg}
+            />
+          ) : (
+            <div style={styles.avatar}>👤</div>
+          )}
           <div style={styles.userDetails}>
             <span style={styles.userEmail} title={userEmail}>
-              {userEmail.split('@')[0]}
+              {userName || userEmail.split('@')[0]}
             </span>
           </div>
           <span style={styles.profileChevron}>{profileOpen ? '▴' : '▾'}</span>
@@ -626,6 +710,18 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'rgba(99, 102, 241, 0.15)',
     borderColor: 'rgba(99, 102, 241, 0.4)',
     color: '#ffffff',
+  },
+  statsBtn: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    width: '100%',
+    padding: '8px 12px',
+    justifyContent: 'flex-start',
+    border: 'none',
+    fontSize: '13px',
+    fontWeight: 500,
+    marginBottom: '8px',
   },
   navIcon: {
     fontSize: '16px',
@@ -815,6 +911,10 @@ const styles: Record<string, React.CSSProperties> = {
     marginLeft: '8px',
     opacity: 0.6,
   },
+  iconPickerFloat: {
+    top: 'calc(100% + 4px)',
+    left: 0,
+  },
   boardActionBtn: {
     background: 'transparent',
     border: 'none',
@@ -824,6 +924,9 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '2px 4px',
     borderRadius: '4px',
     lineHeight: 1,
+  },
+  boardActionBtnActive: {
+    background: 'rgba(255, 255, 255, 0.08)',
   },
   boardRenameInput: {
     flex: 1,
@@ -884,6 +987,13 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     justifyContent: 'center',
     fontSize: '14px',
+  },
+  avatarImg: {
+    width: '32px',
+    height: '32px',
+    borderRadius: '50%',
+    objectFit: 'cover',
+    background: 'rgba(255, 255, 255, 0.08)',
   },
   userDetails: {
     display: 'flex',

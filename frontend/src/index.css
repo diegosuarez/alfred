@@ -189,3 +189,76 @@ body {
 .animate-slide-in {
   animation: slideInRight 0.35s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
+
+/* Markdown rendering — applies to anything React-Markdown emits inside
+   .markdown-body. Tweaks the defaults to fit Alfred's glass aesthetic. */
+.markdown-body p {
+  margin: 0 0 0.6em 0;
+}
+.markdown-body p:last-child {
+  margin-bottom: 0;
+}
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4 {
+  margin: 0.7em 0 0.4em 0;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.markdown-body h1 { font-size: 1.4em; }
+.markdown-body h2 { font-size: 1.2em; }
+.markdown-body h3 { font-size: 1.05em; }
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 1.4em;
+  margin: 0.3em 0 0.6em 0;
+}
+.markdown-body li {
+  margin: 0.15em 0;
+}
+.markdown-body a {
+  color: var(--primary, #6366f1);
+  text-decoration: underline;
+}
+.markdown-body code {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+}
+.markdown-body pre {
+  background: rgba(0, 0, 0, 0.35);
+  padding: 10px 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0.4em 0 0.6em 0;
+}
+.markdown-body pre code {
+  background: transparent;
+  padding: 0;
+}
+.markdown-body blockquote {
+  border-left: 3px solid rgba(255, 255, 255, 0.18);
+  margin: 0.4em 0;
+  padding: 0.2em 0 0.2em 0.9em;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+}
+.markdown-body table {
+  border-collapse: collapse;
+  margin: 0.4em 0;
+}
+.markdown-body th,
+.markdown-body td {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 4px 8px;
+}
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  margin: 0.8em 0;
+}
+.markdown-body input[type="checkbox"] {
+  margin-right: 6px;
+}

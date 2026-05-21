@@ -77,6 +77,7 @@ async def create_board(
     board = Board(
         name=board_in.name,
         description=board_in.description,
+        icon=board_in.icon,
         user_id=current_user.id,
         context_id=ctx.id,
     )
@@ -119,6 +120,9 @@ async def get_board_detail(
             selectinload(Board.columns)
             .selectinload(Column.tasks)
             .selectinload(Task.reminders),
+            selectinload(Board.columns)
+            .selectinload(Column.tasks)
+            .selectinload(Task.attachments),
             # Eager-load children + their relationships so the nested
             # rendering on the kanban card has everything it needs.
             selectinload(Board.columns)
@@ -141,6 +145,10 @@ async def get_board_detail(
             .selectinload(Column.tasks)
             .selectinload(Task.children)
             .selectinload(Task.reminders),
+            selectinload(Board.columns)
+            .selectinload(Column.tasks)
+            .selectinload(Task.children)
+            .selectinload(Task.attachments),
         )
     )
     board = result.scalars().first()
@@ -215,6 +223,9 @@ async def update_board(
     if board_in.context_id is not None:
         ctx = await _resolve_context(db, current_user.id, board_in.context_id)
         board.context_id = ctx.id
+    if board_in.icon is not None:
+        # Empty string means "clear back to the default folder fallback".
+        board.icon = board_in.icon or None
 
     await db.commit()
     await db.refresh(board)

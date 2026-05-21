@@ -7,6 +7,7 @@ export interface Contact {
   email?: string | null;
   image_url?: string | null;
   is_favorite: boolean;
+  is_self?: boolean;
 }
 
 interface BaseProps {

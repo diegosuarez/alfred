@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 from app.core.time import utcnow
 
 from app.api.deps import get_current_user
+from app.core.self_contact import ensure_self_contact
 from app.database import get_db
 from app.models.board import Board
 from app.models.column import Column
@@ -41,11 +42,13 @@ _TASK_LOAD_OPTIONS = [
     selectinload(Task.requester),
     selectinload(Task.assignees),
     selectinload(Task.reminders),
+    selectinload(Task.attachments),
     selectinload(Task.children).selectinload(Task.tags),
     selectinload(Task.children).selectinload(Task.focus_sessions),
     selectinload(Task.children).selectinload(Task.requester),
     selectinload(Task.children).selectinload(Task.assignees),
     selectinload(Task.children).selectinload(Task.reminders),
+    selectinload(Task.children).selectinload(Task.attachments),
 ]
 
 
@@ -67,11 +70,27 @@ async def _fetch_caller_contact(
     return contact
 
 
+async def _resolve_assignees_for_create(
+    db: AsyncSession, user, assignee_ids: Optional[List[int]]
+) -> List[Contact]:
+    """Apply the create-time default: when the field is omitted (None),
+    fall back to the user's 'Yo mismo' contact. An explicit empty list
+    opts out and yields no assignees."""
+    if assignee_ids is None:
+        self_contact = await ensure_self_contact(db, user)
+        return [self_contact]
+    return await _fetch_caller_contacts(db, user.id, assignee_ids)
+
+
 async def _fetch_caller_contacts(
-    db: AsyncSession, user_id: int, contact_ids: List[int]
+    db: AsyncSession, user_id: int, contact_ids: Optional[List[int]]
 ) -> List[Contact]:
     """Resolve a list of contact ids to rows, rejecting any that don't
-    belong to the caller. Returns them in the requested order."""
+    belong to the caller. Returns them in the requested order.
+
+    `None` means "caller omitted the field" and is the empty list here.
+    Use `_resolve_assignees_for_create` instead when you want the
+    default-to-self behavior on task creation."""
     if not contact_ids:
         return []
     unique = list(dict.fromkeys(contact_ids))
@@ -217,8 +236,8 @@ async def create_task(
     next_position = (last_position + 1) if last_position is not None else 0
 
     tags = await _fetch_caller_tags(db, current_user.id, task_in.tag_ids)
-    assignees = await _fetch_caller_contacts(
-        db, current_user.id, task_in.assignee_ids
+    assignees = await _resolve_assignees_for_create(
+        db, current_user, task_in.assignee_ids
     )
     requester = None
     if task_in.requester_id:
@@ -268,8 +287,8 @@ async def create_subtask(
     next_position = (last_position + 1) if last_position is not None else 0
 
     tags = await _fetch_caller_tags(db, current_user.id, task_in.tag_ids)
-    assignees = await _fetch_caller_contacts(
-        db, current_user.id, task_in.assignee_ids
+    assignees = await _resolve_assignees_for_create(
+        db, current_user, task_in.assignee_ids
     )
     requester = None
     if task_in.requester_id:
@@ -359,6 +378,14 @@ async def update_task(
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Parent task lives in a different board",
+                )
+            # Reject cycles: the new parent can't be one of this task's
+            # own descendants (direct or transitive).
+            descendants = await _collect_descendant_ids(db, [task.id])
+            if parent.id in descendants:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cannot nest a task under one of its descendants",
                 )
             task.parent_task_id = parent.id
 

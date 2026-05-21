@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface PAT {
   id: number;
@@ -41,12 +42,8 @@ export const TokensSettings: React.FC<TokensSettingsProps> = ({ onClose }) => {
 
   useEffect(() => {
     load();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, []);
+  useEscapeKey(onClose);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,21 +94,6 @@ export const TokensSettings: React.FC<TokensSettingsProps> = ({ onClose }) => {
         icon: '/logo.png',
       });
       n.onerror = (err) => console.error('Notification onerror:', err);
-    } catch (err: any) {
-      alert(`Error: ${err.message}`);
-    }
-  };
-
-  const handleTestServerPush = async () => {
-    try {
-      const result = await fetch('/api/push/test', {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          Authorization: `Bearer ${localStorage.getItem('alfred_token') || ''}`,
-        },
-      }).then((r) => r.json());
-      alert('Resultado del push de prueba:\n' + JSON.stringify(result, null, 2));
     } catch (err: any) {
       alert(`Error: ${err.message}`);
     }
@@ -189,14 +171,6 @@ export const TokensSettings: React.FC<TokensSettingsProps> = ({ onClose }) => {
               onClick={handleTestPageNotification}
             >
               🔔 Notificación directa (sin SW)
-            </button>
-            <button
-              type="button"
-              className="glass-button-secondary"
-              style={{ padding: '8px 14px', fontSize: '12px' }}
-              onClick={handleTestServerPush}
-            >
-              🚀 Push del servidor (vía SW)
             </button>
           </div>
         </section>

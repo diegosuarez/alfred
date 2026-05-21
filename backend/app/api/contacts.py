@@ -44,14 +44,20 @@ async def list_contacts(
             )
         if ctx.google_account_id is not None:
             # Contact rows from this context's account, plus account-less
-            # ("manual") contacts that aren't tied to anything.
+            # ("manual") contacts that aren't tied to anything. The self
+            # contact is user-level and surfaces in every context.
             stmt = stmt.filter(
                 (Contact.google_account_id == ctx.google_account_id)
                 | (Contact.google_account_id.is_(None))
+                | (Contact.is_self.is_(True))
             )
 
     result = await db.execute(
-        stmt.order_by(Contact.is_favorite.desc(), Contact.name)
+        stmt.order_by(
+            Contact.is_self.desc(),
+            Contact.is_favorite.desc(),
+            Contact.name,
+        )
     )
     return result.scalars().all()
 
@@ -136,6 +142,11 @@ async def delete_contact(
     if not contact:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Contact not found"
+        )
+    if contact.is_self:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="The 'Yo mismo' contact cannot be deleted",
         )
     # FK rules: task.requester_id → SET NULL, task_assignees rows →
     # CASCADE delete via the M2M table. The tasks survive.

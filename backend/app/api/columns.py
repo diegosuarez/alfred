@@ -165,11 +165,13 @@ async def list_archived_in_column(
             selectinload(Task.requester),
             selectinload(Task.assignees),
             selectinload(Task.reminders),
+            selectinload(Task.attachments),
             selectinload(Task.children).selectinload(Task.tags),
             selectinload(Task.children).selectinload(Task.focus_sessions),
             selectinload(Task.children).selectinload(Task.requester),
             selectinload(Task.children).selectinload(Task.assignees),
             selectinload(Task.children).selectinload(Task.reminders),
+            selectinload(Task.children).selectinload(Task.attachments),
         )
         .order_by(Task.archived_at.desc())
     )

@@ -9,6 +9,9 @@ class Board(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
     description = Column(String, nullable=True)
+    # Single grapheme emoji used as the board's sidebar icon. NULL means
+    # "use the default folder fallback in the UI".
+    icon = Column(String(16), nullable=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     # Nullable at the SQL level so existing rows on a legacy DB don't break;
     # application code always assigns one (lifespan migration backfills).

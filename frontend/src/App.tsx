@@ -23,12 +23,15 @@ interface Board {
   id: number;
   name: string;
   description?: string;
+  icon?: string | null;
   context_id: number | null;
 }
 
 export const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userEmail, setUserEmail] = useState('');
+  const [userName, setUserName] = useState<string | null>(null);
+  const [userPicture, setUserPicture] = useState<string | null>(null);
   const [contexts, setContexts] = useState<Context[]>([]);
   // null = "All contexts"
   const [activeContextId, setActiveContextId] = useState<number | null>(null);
@@ -150,8 +153,28 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (isAuthenticated) {
       loadContextsAndBoards();
+      loadProfileFromGoogle();
     }
   }, [isAuthenticated, refreshTrigger]);
+
+  // Pull the display name + avatar from the earliest connected Google
+  // account. We refresh on every (re)load because the OAuth callback
+  // snapshots the profile each time the user logs in via Google.
+  const loadProfileFromGoogle = async () => {
+    try {
+      const accounts = await api.getGoogleAccounts();
+      if (!accounts.length) {
+        setUserName(null);
+        setUserPicture(null);
+        return;
+      }
+      const primary = accounts[0];
+      setUserName(primary.display_name || null);
+      setUserPicture(primary.picture_url || null);
+    } catch {
+      // Non-fatal: the sidebar will fall back to the email.
+    }
+  };
 
   const fireReminder = (r: { id: number; task_id: number; task_title: string; remind_at: string }) => {
     setFiredReminders((prev) => {
@@ -334,6 +357,15 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleSetBoardIcon = async (id: number, icon: string) => {
+    try {
+      const updated = await api.setBoardIcon(id, icon);
+      setBoards(boards.map((b) => (b.id === id ? { ...b, icon: updated.icon } : b)));
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
   const handleDeleteBoard = async (id: number) => {
     try {
       await api.deleteBoard(id);
@@ -468,12 +500,15 @@ export const App: React.FC = () => {
         onChangeView={(view) => setCurrentView(view)}
         onCreateBoard={handleCreateBoard}
         onRenameBoard={handleRenameBoard}
+        onSetBoardIcon={handleSetBoardIcon}
         onDeleteBoard={handleDeleteBoard}
         onOpenSettings={() => setShowSettings(true)}
         onOpenTokens={() => setShowTokens(true)}
         onOpenContacts={() => setShowContacts(true)}
         onLogout={handleLogout}
         userEmail={userEmail}
+        userName={userName}
+        userPicture={userPicture}
         style={mobileSidebarStyle}
         onCloseMobileSidebar={isMobile ? () => setShowSidebar(false) : undefined}
       />

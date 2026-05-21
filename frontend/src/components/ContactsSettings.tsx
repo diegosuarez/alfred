@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
 import { Avatar } from './Avatar';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface Contact {
   id: number;
@@ -34,6 +35,7 @@ export const ContactsSettings: React.FC<ContactsSettingsProps> = ({
   const [loading, setLoading] = useState(true);
   const [syncingId, setSyncingId] = useState<number | null>(null);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  useEscapeKey(onClose);
 
   const load = async () => {
     try {

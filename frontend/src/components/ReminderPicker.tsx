@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface ReminderPickerProps {
   onClose: () => void;
@@ -67,6 +68,7 @@ export const ReminderPicker: React.FC<ReminderPickerProps> = ({
   })();
   const [customValue, setCustomValue] = useState(defaultCustom);
   const [submitting, setSubmitting] = useState(false);
+  useEscapeKey(onClose);
 
   const dispatch = async (when: Date) => {
     if (when.getTime() < Date.now()) {

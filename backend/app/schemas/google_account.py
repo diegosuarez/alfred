@@ -1,5 +1,5 @@
 from app.core.time import UtcDatetime
-from typing import List
+from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -9,6 +9,8 @@ class GoogleAccountResponse(BaseModel):
 
     id: int
     email: str
+    display_name: Optional[str] = None
+    picture_url: Optional[str] = None
     scopes: str
     created_at: UtcDatetime
     updated_at: UtcDatetime

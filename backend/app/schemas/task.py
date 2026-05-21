@@ -3,6 +3,7 @@ from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.attachment import AttachmentResponse
 from app.schemas.contact import ContactResponse
 from app.schemas.reminder import ReminderResponse
 from app.schemas.tag import TagResponse
@@ -24,7 +25,9 @@ class TaskCreate(TaskBase):
     parent_task_id: Optional[int] = None
     tag_ids: List[int] = []
     requester_id: Optional[int] = None
-    assignee_ids: List[int] = []
+    # None (field omitted) means "default to the user's self contact".
+    # An empty list opts out and creates a task with no assignees.
+    assignee_ids: Optional[List[int]] = None
 
 
 class TaskUpdate(BaseModel):
@@ -70,6 +73,7 @@ class TaskChildResponse(TaskBase):
     requester: Optional[ContactResponse] = None
     assignees: List[ContactResponse] = []
     reminders: List[ReminderResponse] = []
+    attachments: List[AttachmentResponse] = []
 
 
 class TaskResponse(TaskBase):
@@ -88,6 +92,7 @@ class TaskResponse(TaskBase):
     requester: Optional[ContactResponse] = None
     assignees: List[ContactResponse] = []
     reminders: List[ReminderResponse] = []
+    attachments: List[AttachmentResponse] = []
     children: List[TaskChildResponse] = []
 
 

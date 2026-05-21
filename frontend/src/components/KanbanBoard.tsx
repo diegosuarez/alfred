@@ -5,6 +5,32 @@ import { ContactPicker, type Contact } from './ContactPicker';
 import { ArchivedTasksModal } from './ArchivedTasksModal';
 import { ReminderPicker } from './ReminderPicker';
 import { FilterModal, EMPTY_FILTERS, type Filters } from './FilterModal';
+import { useEscapeKey } from '../hooks/useEscapeKey';
+import { AttachmentsSection, type Attachment } from './AttachmentsSection';
+import { useAuthedImage } from '../hooks/useAuthedImage';
+import { MarkdownView } from './MarkdownView';
+
+const CardCoverImage: React.FC<{ url: string; alt: string }> = ({ url, alt }) => {
+  const src = useAuthedImage(url);
+  if (!src) return null;
+  return (
+    <img
+      src={src}
+      alt={alt}
+      style={{
+        width: 'calc(100% + 32px)',
+        marginLeft: '-16px',
+        marginRight: '-16px',
+        marginTop: '8px',
+        marginBottom: '8px',
+        height: '120px',
+        objectFit: 'cover',
+        display: 'block',
+        borderRadius: '4px',
+      }}
+    />
+  );
+};
 
 interface Tag {
   id: number;
@@ -35,6 +61,7 @@ interface Task {
   requester?: Contact | null;
   assignees: Contact[];
   reminders: Reminder[];
+  attachments: Attachment[];
   children: Task[];
 }
 
@@ -94,6 +121,9 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   const [newTaskDesc, setNewTaskDesc] = useState('');
   const [newTaskPriority, setNewTaskPriority] = useState('medium');
   const [newTaskDueDate, setNewTaskDueDate] = useState('');
+  // Pre-seeded with the 'Yo mismo' contact when the form opens so the
+  // default assignee matches what the backend would set anyway.
+  const [newTaskAssigneeIds, setNewTaskAssigneeIds] = useState<number[]>([]);
 
   // Task detailed view modal
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -108,6 +138,19 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   const [allContacts, setAllContacts] = useState<Contact[]>([]);
   const [archiveModalColumn, setArchiveModalColumn] = useState<{ id: number; name: string } | null>(null);
   const [columnMenuOpenId, setColumnMenuOpenId] = useState<number | null>(null);
+  const [editingColId, setEditingColId] = useState<number | null>(null);
+  const [editingColName, setEditingColName] = useState('');
+  // The description renders as markdown by default and flips to a
+  // textarea only when the user clicks "edit", to keep the modal calm.
+  const [editingDescription, setEditingDescription] = useState(false);
+  // Escape closes the task detail modal regardless of focus, matching the
+  // app-wide convention. Only active when a task is selected.
+  useEscapeKey(() => setSelectedTask(null), selectedTask !== null);
+  // Drop the description-editing flag whenever the modal changes target
+  // so the new task always opens in the rendered (read) state.
+  useEffect(() => {
+    setEditingDescription(false);
+  }, [selectedTask?.id]);
   const [showReminderPicker, setShowReminderPicker] = useState(false);
   const [showMovePicker, setShowMovePicker] = useState(false);
   const [moveTargetBoardId, setMoveTargetBoardId] = useState<number | null>(null);
@@ -172,8 +215,16 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   // categories.
   const passesFilters = (task: Task): boolean => {
     const q = filters.query.trim().toLowerCase();
-    if (q && !(task.title.toLowerCase().includes(q) || (task.description ?? '').toLowerCase().includes(q))) {
-      return false;
+    if (q) {
+      const haystacks: string[] = [
+        task.title,
+        task.description ?? '',
+        task.requester?.name ?? '',
+        ...task.assignees.map((a) => a.name),
+      ];
+      if (!haystacks.some((h) => h.toLowerCase().includes(q))) {
+        return false;
+      }
     }
     if (filters.tagIds.length > 0 && !task.tags.some((t) => filters.tagIds.includes(t.id))) {
       return false;
@@ -234,7 +285,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
       const c = allContacts.find((x) => x.id === aid);
       chips.push({
         key: `assignee-${aid}`,
-        label: `delegada en: ${c?.name ?? aid}`,
+        label: `asignado a: ${c?.name ?? aid}`,
         clear: () =>
           setFilters((f) => ({
             ...f,
@@ -365,6 +416,23 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     }
   };
 
+  const startEditColumn = (col: Column) => {
+    setEditingColId(col.id);
+    setEditingColName(col.name);
+  };
+
+  const commitColumnName = async (colId: number, original: string) => {
+    const next = editingColName.trim();
+    setEditingColId(null);
+    if (!next || next === original) return;
+    try {
+      await api.updateColumn(colId, next);
+      fetchBoardDetails();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
   const handleDeleteColumn = async (colId: number) => {
     if (!confirm('¿Estás seguro de que quieres eliminar esta columna y todas sus tareas?')) return;
     try {
@@ -384,12 +452,15 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
         description: newTaskDesc || undefined,
         priority: newTaskPriority,
         due_date: newTaskDueDate || undefined,
+        // Explicit assignment overrides the backend's default-to-self.
+        assignee_ids: newTaskAssigneeIds,
       });
       // Clear forms
       setNewTaskTitle('');
       setNewTaskDesc('');
       setNewTaskPriority('medium');
       setNewTaskDueDate('');
+      setNewTaskAssigneeIds([]);
       setActiveNewTaskCol(null);
       fetchBoardDetails();
     } catch (err: any) {
@@ -397,23 +468,58 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     }
   };
 
+  // Open the inline new-task form on a column, pre-selecting the 'Yo
+  // mismo' contact so the assignee picker mirrors what the backend would
+  // default to anyway.
+  const openNewTaskForm = (columnId: number) => {
+    const selfId = allContacts.find((c) => c.is_self)?.id;
+    setNewTaskAssigneeIds(selfId ? [selfId] : []);
+    setActiveNewTaskCol(columnId);
+  };
+
   /** Auto-save a single field of the task currently open in the modal.
-   * Skips the network round-trip if the value didn't actually change. */
+   * Compares against the LAST COMMITTED value (snapshotted when the
+   * modal opens and refreshed after each successful save), not
+   * selectedTask — which the input's onChange has already mutated. */
+  const lastCommittedRef = React.useRef<Record<string, any> | null>(null);
+  const lastCommittedTaskIdRef = React.useRef<number | null>(null);
   const commitField = async (
     field: 'title' | 'description' | 'priority' | 'due_date',
     value: string | null,
   ) => {
     if (!selectedTask) return;
-    const previous = (selectedTask as any)[field];
+    const committed = lastCommittedRef.current ?? {};
+    const previous = committed[field];
     if (previous === value || (previous == null && value == null)) return;
     try {
       const updated = await api.updateTask(selectedTask.id, { [field]: value } as any);
       setSelectedTask(updated);
+      lastCommittedRef.current = { ...committed, [field]: value };
       fetchBoardDetails();
     } catch (err: any) {
       alert(err.message);
     }
   };
+
+  // Snapshot the committed values whenever the modal opens with a new
+  // task. Without this the optimistic onChange mutations would be read
+  // as "current value" and commitField would short-circuit on every blur.
+  useEffect(() => {
+    if (!selectedTask) {
+      lastCommittedRef.current = null;
+      lastCommittedTaskIdRef.current = null;
+      return;
+    }
+    if (lastCommittedTaskIdRef.current !== selectedTask.id) {
+      lastCommittedRef.current = {
+        title: selectedTask.title,
+        description: selectedTask.description,
+        priority: selectedTask.priority,
+        due_date: selectedTask.due_date,
+      };
+      lastCommittedTaskIdRef.current = selectedTask.id;
+    }
+  }, [selectedTask?.id]);
 
   const handleRequesterChange = async (contactId: number | null) => {
     if (!selectedTask) return;
@@ -631,19 +737,127 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     }
   };
 
+  const handleColumnDragStart = (e: React.DragEvent, colId: number) => {
+    e.dataTransfer.setData('application/x-column-id', colId.toString());
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  // Move the dragged column into the target column's slot; subsequent
+  // columns shift right. Same source+target is a no-op.
+  const reorderColumnTo = async (sourceColId: number, targetColId: number) => {
+    if (!board || sourceColId === targetColId) return;
+    const ids = board.columns.map((c) => c.id);
+    const fromIdx = ids.indexOf(sourceColId);
+    const toIdx = ids.indexOf(targetColId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const reordered = [...ids];
+    reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, sourceColId);
+    const byId = new Map(board.columns.map((c) => [c.id, c]));
+    setBoard({ ...board, columns: reordered.map((id) => byId.get(id)!) });
+    try {
+      await api.reorderColumns(boardId, reordered);
+    } catch (err: any) {
+      alert(err.message);
+      fetchBoardDetails();
+    }
+  };
+
   const handleColumnDrop = async (e: React.DragEvent, targetColId: number) => {
     e.preventDefault();
+    const colIdStr = e.dataTransfer.getData('application/x-column-id');
+    if (colIdStr) {
+      await reorderColumnTo(parseInt(colIdStr), targetColId);
+      return;
+    }
     const taskIdStr = e.dataTransfer.getData('text/plain');
     if (!taskIdStr) return;
     await moveTask(parseInt(taskIdStr), targetColId);
   };
 
-  const handleTaskDrop = async (e: React.DragEvent, targetColId: number, targetIndex: number) => {
+  const handleTaskDrop = async (
+    e: React.DragEvent,
+    targetColId: number,
+    targetIndex: number,
+    targetTaskId: number,
+  ) => {
     e.preventDefault();
     e.stopPropagation();
     const taskIdStr = e.dataTransfer.getData('text/plain');
     if (!taskIdStr) return;
-    await moveTask(parseInt(taskIdStr), targetColId, targetIndex);
+    const sourceId = parseInt(taskIdStr);
+    // Shift+drop nests the source under the target instead of reordering.
+    if (e.shiftKey) {
+      await nestTaskUnder(sourceId, targetTaskId);
+      return;
+    }
+    await moveTask(sourceId, targetColId, targetIndex);
+  };
+
+  // Reparent `sourceId` under `targetId` via the existing update endpoint.
+  // The board state is refetched on success so the children appear inline.
+  const nestTaskUnder = async (sourceId: number, targetId: number) => {
+    if (sourceId === targetId) return;
+    try {
+      await api.updateTask(sourceId, { parent_task_id: targetId });
+      if (selectedTask?.id === sourceId) {
+        await refreshSelectedTask(sourceId);
+      }
+      fetchBoardDetails();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const detachFromParent = async (taskId: number) => {
+    try {
+      // 0 is the backend's "detach" sentinel for parent_task_id.
+      await api.updateTask(taskId, { parent_task_id: 0 });
+      if (selectedTask?.id === taskId) {
+        await refreshSelectedTask(taskId);
+      }
+      fetchBoardDetails();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  /** All tasks on the current board, flattened. Used by the parent picker
+   * in the modal so the user can nest the current task under an existing
+   * one without leaving the dialog. */
+  const allBoardTasks = (): Task[] => {
+    if (!board) return [];
+    const out: Task[] = [];
+    for (const col of board.columns) {
+      for (const t of col.tasks) {
+        out.push(t);
+        for (const child of t.children ?? []) {
+          out.push(child as Task);
+        }
+      }
+    }
+    return out;
+  };
+
+  /** Ids the user is not allowed to set as parent of `taskId`: itself plus
+   * every descendant (would create a cycle). */
+  const ineligibleParentIds = (taskId: number): Set<number> => {
+    const blocked = new Set<number>([taskId]);
+    const flat = allBoardTasks();
+    let frontier = [taskId];
+    while (frontier.length) {
+      const next: number[] = [];
+      for (const t of flat) {
+        if (t.parent_task_id && frontier.includes(t.parent_task_id)) {
+          if (!blocked.has(t.id)) {
+            blocked.add(t.id);
+            next.push(t.id);
+          }
+        }
+      }
+      frontier = next;
+    }
+    return blocked;
   };
 
   // Helpers
@@ -704,11 +918,17 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
         onDragOver={draggable ? handleDragOver : undefined}
         onDrop={
           draggable
-            ? (e) => handleTaskDrop(e, opts.columnId, opts.dropIndex as number)
+            ? (e) =>
+                handleTaskDrop(
+                  e,
+                  opts.columnId,
+                  opts.dropIndex as number,
+                  task.id,
+                )
             : undefined
         }
         onClick={() => setSelectedTask(task)}
-        title={`Prioridad: ${getPriorityLabel(task.priority)}`}
+        title={`Prioridad: ${getPriorityLabel(task.priority)} · Shift+arrastrar para anidar como subtarea`}
       >
         <div style={styles.taskCardHeader}>
           {/* Tags take the header slot the priority badge used to occupy. */}
@@ -753,8 +973,26 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                 🔔 {(task.reminders ?? []).length}
               </span>
             )}
+            {(task.attachments ?? []).length > 0 &&
+              !(task.attachments ?? []).some((a) => a.is_image) && (
+                <span
+                  style={styles.attachmentBadge}
+                  title={`${(task.attachments ?? []).length} adjunto${
+                    (task.attachments ?? []).length === 1 ? '' : 's'
+                  }`}
+                >
+                  📎 {(task.attachments ?? []).length}
+                </span>
+              )}
           </div>
         </div>
+        {/* Cover image: first image attachment renders as a thumbnail
+            strip across the top of the card body. */}
+        {(() => {
+          const cover = (task.attachments ?? []).find((a) => a.is_image);
+          if (!cover) return null;
+          return <CardCoverImage url={cover.url} alt={cover.filename} />;
+        })()}
         <h4
           style={{
             ...styles.taskTitle,
@@ -763,7 +1001,11 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
         >
           {task.title}
         </h4>
-        {task.description && <p style={styles.taskDesc}>{task.description}</p>}
+        {task.description && (
+          <div style={styles.taskDesc}>
+            <MarkdownView source={task.description} compact />
+          </div>
+        )}
         {(task.requester || task.assignees.length > 0) && (
           <div style={styles.peopleRow}>
             {task.requester && (
@@ -782,7 +1024,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
             {task.assignees.length > 0 && (
               <span
                 style={styles.peopleGroup}
-                title={`Delegada en ${task.assignees.map((c) => c.name).join(', ')}`}
+                title={`Asignado a ${task.assignees.map((c) => c.name).join(', ')}`}
               >
                 <span style={styles.peopleLabel}>→</span>
                 <div style={styles.assigneeStack}>
@@ -957,7 +1199,41 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
             {/* Column Header */}
             <div style={styles.columnHeader}>
               <h3 style={styles.columnTitle}>
-                {col.name} <span style={styles.taskCount}>{col.tasks.length}</span>
+                <span
+                  draggable
+                  onDragStart={(e) => handleColumnDragStart(e, col.id)}
+                  style={styles.colDragHandle}
+                  title="Arrastrar para reordenar lista"
+                >
+                  ⋮⋮
+                </span>
+                {editingColId === col.id ? (
+                  <input
+                    type="text"
+                    className="glass-input"
+                    style={styles.colTitleInput}
+                    value={editingColName}
+                    autoFocus
+                    onChange={(e) => setEditingColName(e.target.value)}
+                    onBlur={() => commitColumnName(col.id, col.name)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        (e.target as HTMLInputElement).blur();
+                      } else if (e.key === 'Escape') {
+                        setEditingColId(null);
+                      }
+                    }}
+                  />
+                ) : (
+                  <span
+                    onClick={() => startEditColumn(col)}
+                    style={styles.colTitleText}
+                    title="Click para renombrar"
+                  >
+                    {col.name}
+                  </span>
+                )}{' '}
+                <span style={styles.taskCount}>{col.tasks.length}</span>
               </h3>
               <div style={styles.colHeaderActions}>
                 <div style={styles.colMenuWrapper}>
@@ -1049,6 +1325,12 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                   placeholder="Título de la tarea..."
                   value={newTaskTitle}
                   onChange={(e) => setNewTaskTitle(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                      e.preventDefault();
+                      handleAddTask(col.id);
+                    }
+                  }}
                   autoFocus
                   required
                 />
@@ -1058,6 +1340,12 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                   placeholder="Descripción (opcional)..."
                   value={newTaskDesc}
                   onChange={(e) => setNewTaskDesc(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                      e.preventDefault();
+                      handleAddTask(col.id);
+                    }
+                  }}
                 />
                 <div style={styles.taskFormRow}>
                   <select
@@ -1078,13 +1366,26 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                     onChange={(e) => setNewTaskDueDate(e.target.value)}
                   />
                 </div>
+                <div>
+                  <label style={styles.newTaskLabel}>Asignado a</label>
+                  <ContactPicker
+                    multi
+                    contacts={allContacts}
+                    value={newTaskAssigneeIds}
+                    onChange={(ids) => setNewTaskAssigneeIds(ids)}
+                    placeholder="Nadie"
+                  />
+                </div>
                 <div style={styles.taskFormActions}>
                   <button className="glass-button" onClick={() => handleAddTask(col.id)}>
                     Guardar
                   </button>
                   <button
                     className="glass-button glass-button-secondary"
-                    onClick={() => setActiveNewTaskCol(null)}
+                    onClick={() => {
+                      setActiveNewTaskCol(null);
+                      setNewTaskAssigneeIds([]);
+                    }}
                   >
                     Cancelar
                   </button>
@@ -1093,7 +1394,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
             ) : (
               <button
                 style={styles.addTaskTrigger}
-                onClick={() => setActiveNewTaskCol(col.id)}
+                onClick={() => openNewTaskForm(col.id)}
               >
                 ＋ Añadir Tarea
               </button>
@@ -1149,23 +1450,58 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                   }
                   onBlur={(e) => commitField('title', e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                    if (e.key === 'Enter') {
+                      (e.target as HTMLInputElement).blur();
+                      if (e.ctrlKey || e.metaKey) setSelectedTask(null);
+                    }
                   }}
                   required
                 />
               </div>
 
               <div style={styles.inputGroup}>
-                <label style={styles.label}>Descripción</label>
-                <textarea
-                  className="glass-input"
-                  style={{ height: '120px', resize: 'vertical' }}
-                  value={selectedTask.description || ''}
-                  onChange={(e) =>
-                    setSelectedTask({ ...selectedTask, description: e.target.value })
-                  }
-                  onBlur={(e) => commitField('description', e.target.value)}
-                />
+                <label style={styles.label}>
+                  Descripción{' '}
+                  <span style={styles.markdownHint}>
+                    (soporta Markdown)
+                  </span>
+                </label>
+                {editingDescription ? (
+                  <textarea
+                    className="glass-input"
+                    style={{ height: '180px', resize: 'vertical' }}
+                    value={selectedTask.description || ''}
+                    autoFocus
+                    onChange={(e) =>
+                      setSelectedTask({ ...selectedTask, description: e.target.value })
+                    }
+                    onBlur={(e) => {
+                      commitField('description', e.target.value);
+                      setEditingDescription(false);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                        e.preventDefault();
+                        (e.target as HTMLTextAreaElement).blur();
+                        setSelectedTask(null);
+                      }
+                    }}
+                  />
+                ) : (
+                  <div
+                    style={styles.descriptionView}
+                    onClick={() => setEditingDescription(true)}
+                    title="Click para editar"
+                  >
+                    {selectedTask.description ? (
+                      <MarkdownView source={selectedTask.description} />
+                    ) : (
+                      <span style={styles.descriptionEmpty}>
+                        Sin descripción — click para añadir
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div style={styles.modalRow}>
@@ -1216,7 +1552,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                   />
                 </div>
                 <div style={{ ...styles.inputGroup, flex: 1 }}>
-                  <label style={styles.label}>Delegada en</label>
+                  <label style={styles.label}>Asignado a</label>
                   <ContactPicker
                     multi
                     contacts={allContacts}
@@ -1225,6 +1561,77 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                     placeholder="Nadie"
                   />
                 </div>
+              </div>
+
+              {/* Attachments — drop zone, paste handler, listing. */}
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Adjuntos</label>
+                <AttachmentsSection
+                  taskId={selectedTask.id}
+                  attachments={selectedTask.attachments ?? []}
+                  onChanged={async () => {
+                    await refreshSelectedTask(selectedTask.id);
+                    fetchBoardDetails();
+                  }}
+                />
+              </div>
+
+              {/* Parent picker — lets the user nest this task under an
+                  existing one (or detach it). Excludes self + descendants
+                  to avoid cycles. */}
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>Subtarea de</label>
+                {(() => {
+                  const parent =
+                    selectedTask.parent_task_id != null
+                      ? allBoardTasks().find(
+                          (t) => t.id === selectedTask.parent_task_id,
+                        )
+                      : null;
+                  const blocked = ineligibleParentIds(selectedTask.id);
+                  const candidates = allBoardTasks().filter(
+                    (t) => !blocked.has(t.id),
+                  );
+                  if (parent) {
+                    return (
+                      <div style={styles.parentRow}>
+                        <button
+                          type="button"
+                          style={styles.parentLink}
+                          onClick={() => setSelectedTask(parent)}
+                          title="Abrir la tarea padre"
+                        >
+                          ↑ {parent.title}
+                        </button>
+                        <button
+                          type="button"
+                          style={styles.parentDetach}
+                          onClick={() => detachFromParent(selectedTask.id)}
+                          title="Desligar de la tarea padre"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    );
+                  }
+                  return (
+                    <select
+                      className="glass-input"
+                      value=""
+                      onChange={(e) => {
+                        const id = parseInt(e.target.value);
+                        if (id) nestTaskUnder(selectedTask.id, id);
+                      }}
+                    >
+                      <option value="">Ninguna — convertir en subtarea de…</option>
+                      {candidates.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.title}
+                        </option>
+                      ))}
+                    </select>
+                  );
+                })()}
               </div>
 
               <div style={styles.inputGroup}>
@@ -1704,14 +2111,9 @@ const styles: Record<string, React.CSSProperties> = {
     lineHeight: 1.4,
   },
   taskDesc: {
-    fontSize: '12px',
-    color: 'var(--text-secondary)',
+    // Inner MarkdownView (compact) handles the 2-line clamp; this wrapper
+    // just owns the spacing around the snippet.
     marginBottom: '12px',
-    lineHeight: 1.5,
-    display: '-webkit-box',
-    WebkitLineClamp: 2,
-    WebkitBoxOrient: 'vertical',
-    overflow: 'hidden',
   },
   taskFooter: {
     display: 'flex',
@@ -1775,6 +2177,38 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '8px',
     justifyContent: 'flex-end',
   },
+  newTaskLabel: {
+    display: 'block',
+    fontSize: '11px',
+    fontWeight: 500,
+    color: 'var(--text-muted)',
+    marginBottom: '4px',
+  },
+  parentRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  parentLink: {
+    flex: 1,
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.12)',
+    color: 'var(--text-primary)',
+    textAlign: 'left',
+    padding: '8px 12px',
+    fontSize: '13px',
+    borderRadius: '6px',
+    cursor: 'pointer',
+  },
+  parentDetach: {
+    background: 'transparent',
+    border: '1px solid rgba(255,255,255,0.12)',
+    color: 'var(--text-muted)',
+    cursor: 'pointer',
+    fontSize: '14px',
+    padding: '4px 10px',
+    borderRadius: '6px',
+  },
   centered: {
     flex: 1,
     display: 'flex',
@@ -1806,8 +2240,32 @@ const styles: Record<string, React.CSSProperties> = {
   },
   modal: {
     width: '100%',
-    maxWidth: '500px',
+    // Doubled from 500 → 1000 to host the markdown description and
+    // attachment grid without the form feeling cramped. Caps at the
+    // viewport width on smaller screens via the responsive max calc.
+    maxWidth: 'min(1000px, 95vw)',
+    maxHeight: '90vh',
+    overflowY: 'auto',
     padding: '30px',
+  },
+  markdownHint: {
+    fontSize: '11px',
+    color: 'var(--text-muted)',
+    fontWeight: 400,
+    marginLeft: '6px',
+  },
+  descriptionView: {
+    minHeight: '60px',
+    padding: '10px 14px',
+    background: 'rgba(255,255,255,0.04)',
+    border: '1px solid rgba(255,255,255,0.10)',
+    borderRadius: '6px',
+    cursor: 'text',
+  },
+  descriptionEmpty: {
+    color: 'var(--text-muted)',
+    fontSize: '13px',
+    fontStyle: 'italic',
   },
   modalHeader: {
     display: 'flex',
@@ -2023,6 +2481,26 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: 'center',
     gap: '2px',
   },
+  colDragHandle: {
+    cursor: 'grab',
+    color: 'var(--text-muted)',
+    fontSize: '14px',
+    userSelect: 'none',
+    letterSpacing: '-2px',
+    padding: '0 2px',
+  },
+  colTitleText: {
+    cursor: 'text',
+    padding: '2px 4px',
+    borderRadius: '4px',
+  },
+  colTitleInput: {
+    fontSize: '16px',
+    fontWeight: 600,
+    padding: '4px 8px',
+    minWidth: '0',
+    flex: 1,
+  },
   colMenuWrapper: {
     position: 'relative',
   },
@@ -2104,6 +2582,14 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--accent-warning)',
     background: 'rgba(245,158,11,0.12)',
     border: '1px solid rgba(245,158,11,0.45)',
+    borderRadius: '999px',
+    padding: '2px 8px',
+  },
+  attachmentBadge: {
+    fontSize: '10px',
+    color: 'var(--text-secondary)',
+    background: 'rgba(255,255,255,0.06)',
+    border: '1px solid rgba(255,255,255,0.12)',
     borderRadius: '999px',
     padding: '2px 8px',
   },

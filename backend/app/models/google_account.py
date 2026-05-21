@@ -19,6 +19,10 @@ class GoogleAccount(Base):
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     google_user_id = Column(String, nullable=False, index=True)  # the "sub" claim
     email = Column(String, nullable=False)
+    # Profile snapshot captured at OAuth time. The UI uses these to show
+    # the user's avatar + name instead of just the bare email.
+    display_name = Column(String, nullable=True)
+    picture_url = Column(String, nullable=True)
     access_token = Column(String, nullable=True)
     refresh_token = Column(String, nullable=True)
     # Space-separated list of OAuth scopes the user has granted.

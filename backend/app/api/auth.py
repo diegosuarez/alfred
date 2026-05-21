@@ -14,6 +14,7 @@ from app.core.security import (
     get_password_hash,
     verify_password,
 )
+from app.core.self_contact import ensure_self_contact
 from app.database import get_db
 from app.models.google_account import GoogleAccount
 from app.models.user import User
@@ -64,6 +65,8 @@ async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
         hashed_password=get_password_hash(user_in.password)
     )
     db.add(db_user)
+    await db.flush()
+    await ensure_self_contact(db, db_user)
     await db.commit()
     await db.refresh(db_user)
     return db_user
@@ -168,6 +171,7 @@ async def google_callback(
             user = User(email=email, hashed_password=None)
             db.add(user)
             await db.flush()
+            await ensure_self_contact(db, user)
 
     account = (
         await db.execute(
@@ -189,6 +193,12 @@ async def google_callback(
         account.refresh_token = token_payload["refresh_token"]
     account.scopes = token_payload.get("scope", " ".join(google_oauth.LOGIN_SCOPES))
     account.expires_at = google_oauth.compute_expires_at(token_payload.get("expires_in"))
+    # Refresh the profile snapshot on every login so renames/avatar
+    # changes on Google's side propagate without manual action.
+    if userinfo.get("name"):
+        account.display_name = userinfo["name"]
+    if userinfo.get("picture"):
+        account.picture_url = userinfo["picture"]
 
     await db.commit()
     await db.refresh(user)
