@@ -83,6 +83,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [editingBoardId, setEditingBoardId] = useState<number | null>(null);
   const [editingBoardName, setEditingBoardName] = useState('');
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   const handleCreateBoard = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -501,56 +502,67 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       </div>
 
-      {/* User Session Area */}
+      {/* User Session Area — collapsed by default to keep the sidebar
+          quiet. The user row toggles open the actions block. */}
       <div style={styles.userFooter}>
-        <div style={styles.userInfo}>
+        <button
+          type="button"
+          style={styles.userInfoTrigger}
+          onClick={() => setProfileOpen((o) => !o)}
+          title={profileOpen ? 'Ocultar opciones de perfil' : 'Opciones de perfil'}
+        >
           <div style={styles.avatar}>👤</div>
           <div style={styles.userDetails}>
             <span style={styles.userEmail} title={userEmail}>
               {userEmail.split('@')[0]}
             </span>
           </div>
-        </div>
-        <button
-          className="glass-button-secondary"
-          style={styles.settingsBtn}
-          onClick={() => {
-            onOpenSettings();
-            onCloseMobileSidebar?.();
-          }}
-        >
-          ⚙️ Cuentas Google
+          <span style={styles.profileChevron}>{profileOpen ? '▴' : '▾'}</span>
         </button>
-        <button
-          className="glass-button-secondary"
-          style={styles.settingsBtn}
-          onClick={() => {
-            onOpenContacts();
-            onCloseMobileSidebar?.();
-          }}
-        >
-          👥 Contactos
-        </button>
-        <button
-          className="glass-button-secondary"
-          style={styles.settingsBtn}
-          onClick={() => {
-            onOpenTokens();
-            onCloseMobileSidebar?.();
-          }}
-        >
-          🔑 Tokens API
-        </button>
-        <button
-          className="glass-button glass-button-danger"
-          style={styles.logoutBtn}
-          onClick={() => {
-            onLogout();
-            onCloseMobileSidebar?.();
-          }}
-        >
-          Cerrar Sesión
-        </button>
+        {profileOpen && (
+          <div style={styles.profileActions} className="animate-fade-in">
+            <button
+              className="glass-button-secondary"
+              style={styles.settingsBtn}
+              onClick={() => {
+                onOpenSettings();
+                onCloseMobileSidebar?.();
+              }}
+            >
+              ⚙️ Cuentas Google
+            </button>
+            <button
+              className="glass-button-secondary"
+              style={styles.settingsBtn}
+              onClick={() => {
+                onOpenContacts();
+                onCloseMobileSidebar?.();
+              }}
+            >
+              👥 Contactos
+            </button>
+            <button
+              className="glass-button-secondary"
+              style={styles.settingsBtn}
+              onClick={() => {
+                onOpenTokens();
+                onCloseMobileSidebar?.();
+              }}
+            >
+              🔑 Tokens API
+            </button>
+            <button
+              className="glass-button glass-button-danger"
+              style={styles.logoutBtn}
+              onClick={() => {
+                onLogout();
+                onCloseMobileSidebar?.();
+              }}
+            >
+              Cerrar Sesión
+            </button>
+          </div>
+        )}
       </div>
     </aside>
   );
@@ -837,6 +849,31 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     alignItems: 'center',
     gap: '10px',
+  },
+  userInfoTrigger: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    width: '100%',
+    background: 'transparent',
+    border: 'none',
+    padding: '8px',
+    margin: 0,
+    cursor: 'pointer',
+    borderRadius: 'var(--border-radius-sm)',
+    color: 'inherit',
+    textAlign: 'left',
+  },
+  profileChevron: {
+    marginLeft: 'auto',
+    color: 'var(--text-muted)',
+    fontSize: '12px',
+  },
+  profileActions: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    marginTop: '6px',
   },
   avatar: {
     width: '32px',
