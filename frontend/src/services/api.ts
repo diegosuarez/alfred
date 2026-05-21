@@ -201,6 +201,29 @@ export const api = {
       method: 'DELETE',
     }),
 
+  // Contacts
+  getContacts: () => request('/contacts'),
+
+  createContact: (
+    data: { name: string; email?: string; image_url?: string; is_favorite?: boolean },
+  ) =>
+    request('/contacts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateContact: (
+    contactId: number,
+    data: { name?: string; email?: string; image_url?: string; is_favorite?: boolean },
+  ) =>
+    request(`/contacts/${contactId}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
+  deleteContact: (contactId: number) =>
+    request(`/contacts/${contactId}`, { method: 'DELETE' }),
+
   // Tasks
   createTask: (
     columnId: number,
@@ -210,6 +233,8 @@ export const api = {
       priority?: string;
       due_date?: string;
       tag_ids?: number[];
+      requester_id?: number | null;
+      assignee_ids?: number[];
     },
   ) =>
     request(`/columns/${columnId}/tasks`, {
@@ -226,6 +251,10 @@ export const api = {
       due_date?: string | null;
       column_id?: number;
       tag_ids?: number[];
+      requester_id?: number | null;
+      assignee_ids?: number[];
+      completed?: boolean;
+      parent_task_id?: number;
     },
   ) =>
     request(`/tasks/${taskId}`, {

@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
+import { Avatar } from './Avatar';
+import { ContactPicker, type Contact } from './ContactPicker';
 
 interface Tag {
   id: number;
@@ -20,6 +22,8 @@ interface Task {
   completed: boolean;
   total_focus_time: number;
   tags: Tag[];
+  requester?: Contact | null;
+  assignees: Contact[];
   children: Task[];
 }
 
@@ -67,6 +71,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
   const [filterTagIds, setFilterTagIds] = useState<number[]>([]);
   const [newTagName, setNewTagName] = useState('');
   const [newSubtaskTitle, setNewSubtaskTitle] = useState('');
+  const [allContacts, setAllContacts] = useState<Contact[]>([]);
 
   const fetchBoardDetails = async () => {
     try {
@@ -89,9 +94,19 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
     }
   };
 
+  const fetchContacts = async () => {
+    try {
+      const data = await api.getContacts();
+      setAllContacts(data);
+    } catch (err) {
+      console.error('Error loading contacts:', err);
+    }
+  };
+
   useEffect(() => {
     fetchBoardDetails();
     fetchTags();
+    fetchContacts();
   }, [boardId]);
 
   const toggleFilterTag = (tagId: number) => {
@@ -235,6 +250,33 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
     if (previous === value || (previous == null && value == null)) return;
     try {
       const updated = await api.updateTask(selectedTask.id, { [field]: value } as any);
+      setSelectedTask(updated);
+      fetchBoardDetails();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleRequesterChange = async (contactId: number | null) => {
+    if (!selectedTask) return;
+    try {
+      // The backend uses 0 as the "detach" sentinel for requester_id.
+      const updated = await api.updateTask(selectedTask.id, {
+        requester_id: contactId === null ? 0 : contactId,
+      });
+      setSelectedTask(updated);
+      fetchBoardDetails();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleAssigneesChange = async (contactIds: number[]) => {
+    if (!selectedTask) return;
+    try {
+      const updated = await api.updateTask(selectedTask.id, {
+        assignee_ids: contactIds,
+      });
       setSelectedTask(updated);
       fetchBoardDetails();
     } catch (err: any) {
@@ -424,6 +466,43 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                 {tag.name}
               </span>
             ))}
+          </div>
+        )}
+        {(task.requester || task.assignees.length > 0) && (
+          <div style={styles.peopleRow}>
+            {task.requester && (
+              <span
+                style={styles.peopleGroup}
+                title={`Encargada por ${task.requester.name}`}
+              >
+                <span style={styles.peopleLabel}>de</span>
+                <Avatar
+                  name={task.requester.name}
+                  imageUrl={task.requester.image_url}
+                  size={20}
+                />
+              </span>
+            )}
+            {task.assignees.length > 0 && (
+              <span
+                style={styles.peopleGroup}
+                title={`Delegada en ${task.assignees.map((c) => c.name).join(', ')}`}
+              >
+                <span style={styles.peopleLabel}>→</span>
+                <div style={styles.assigneeStack}>
+                  {task.assignees.slice(0, 3).map((c) => (
+                    <span key={c.id} style={styles.assigneeAvatar}>
+                      <Avatar name={c.name} imageUrl={c.image_url} size={20} />
+                    </span>
+                  ))}
+                  {task.assignees.length > 3 && (
+                    <span style={styles.assigneeMore}>
+                      +{task.assignees.length - 3}
+                    </span>
+                  )}
+                </div>
+              </span>
+            )}
           </div>
         )}
         <div style={styles.taskFooter}>
@@ -731,6 +810,28 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                       });
                       commitField('due_date', iso);
                     }}
+                  />
+                </div>
+              </div>
+
+              <div style={styles.modalRow}>
+                <div style={{ ...styles.inputGroup, flex: 1 }}>
+                  <label style={styles.label}>Encargada por</label>
+                  <ContactPicker
+                    contacts={allContacts}
+                    value={selectedTask.requester ? selectedTask.requester.id : null}
+                    onChange={handleRequesterChange}
+                    placeholder="Nadie en particular"
+                  />
+                </div>
+                <div style={{ ...styles.inputGroup, flex: 1 }}>
+                  <label style={styles.label}>Delegada en</label>
+                  <ContactPicker
+                    multi
+                    contacts={allContacts}
+                    value={selectedTask.assignees.map((c) => c.id)}
+                    onChange={handleAssigneesChange}
+                    placeholder="Nadie"
                   />
                 </div>
               </div>
@@ -1306,6 +1407,43 @@ const styles: Record<string, React.CSSProperties> = {
   },
   taskTitleDone: {
     textDecoration: 'line-through',
+    color: 'var(--text-muted)',
+  },
+  peopleRow: {
+    display: 'flex',
+    gap: '12px',
+    alignItems: 'center',
+    marginTop: '8px',
+    marginBottom: '4px',
+    flexWrap: 'wrap',
+  },
+  peopleGroup: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    fontSize: '11px',
+    color: 'var(--text-muted)',
+  },
+  peopleLabel: {
+    fontSize: '10px',
+    fontWeight: 600,
+    color: 'var(--text-muted)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+  },
+  assigneeStack: {
+    display: 'inline-flex',
+    alignItems: 'center',
+  },
+  assigneeAvatar: {
+    marginLeft: '-4px',
+    border: '1.5px solid var(--glass-bg)',
+    borderRadius: '50%',
+    display: 'inline-flex',
+  },
+  assigneeMore: {
+    marginLeft: '4px',
+    fontSize: '10px',
     color: 'var(--text-muted)',
   },
   subtaskLabelCount: {

@@ -43,6 +43,7 @@ interface SidebarProps {
   onDeleteBoard: (id: number) => Promise<void>;
   onOpenSettings: () => void;
   onOpenTokens: () => void;
+  onOpenContacts: () => void;
   onLogout: () => void;
   userEmail: string;
   style?: React.CSSProperties;
@@ -66,6 +67,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onDeleteBoard,
   onOpenSettings,
   onOpenTokens,
+  onOpenContacts,
   onLogout,
   userEmail,
   style,
@@ -485,6 +487,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
           }}
         >
           ⚙️ Cuentas Google
+        </button>
+        <button
+          className="glass-button-secondary"
+          style={styles.settingsBtn}
+          onClick={() => {
+            onOpenContacts();
+            onCloseMobileSidebar?.();
+          }}
+        >
+          👥 Contactos
         </button>
         <button
           className="glass-button-secondary"

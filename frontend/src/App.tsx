@@ -7,6 +7,7 @@ import { Statistics } from './components/Statistics';
 import { QuickCapture } from './components/QuickCapture';
 import { GoogleSettings } from './components/GoogleSettings';
 import { TokensSettings } from './components/TokensSettings';
+import { ContactsSettings } from './components/ContactsSettings';
 import { api, getToken, setToken } from './services/api';
 
 interface Context {
@@ -45,6 +46,7 @@ export const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   // PAT (Personal Access Tokens) modal
   const [showTokens, setShowTokens] = useState(false);
+  const [showContacts, setShowContacts] = useState(false);
 
   // Decodes JWT payload to extract user metadata
   const parseUserEmail = (token: string) => {
@@ -325,6 +327,7 @@ export const App: React.FC = () => {
         onDeleteBoard={handleDeleteBoard}
         onOpenSettings={() => setShowSettings(true)}
         onOpenTokens={() => setShowTokens(true)}
+        onOpenContacts={() => setShowContacts(true)}
         onLogout={handleLogout}
         userEmail={userEmail}
         style={mobileSidebarStyle}
@@ -382,6 +385,13 @@ export const App: React.FC = () => {
       )}
 
       {showTokens && <TokensSettings onClose={() => setShowTokens(false)} />}
+
+      {showContacts && (
+        <ContactsSettings
+          onClose={() => setShowContacts(false)}
+          onChanged={handleTaskCaptured /* force board refresh */}
+        />
+      )}
     </div>
   );
 };
