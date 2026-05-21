@@ -106,8 +106,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
     );
   };
 
-  const handleCreateTag = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleCreateTag = async () => {
     if (!newTagName.trim()) return;
     try {
       await api.createTag(newTagName.trim());
@@ -134,8 +133,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
     }
   };
 
-  const handleAddSubtask = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleAddSubtask = async () => {
     if (!selectedTask || !newSubtaskTitle.trim()) return;
     try {
       await api.createSubtask(selectedTask.id, newSubtaskTitle.trim());
@@ -746,8 +744,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                     ))}
                   </ul>
                 )}
-                <form
-                  onSubmit={handleAddSubtask}
+                <div
                   style={styles.subtaskForm}
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -758,15 +755,22 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                     placeholder="Añadir subtarea..."
                     value={newSubtaskTitle}
                     onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddSubtask();
+                      }
+                    }}
                   />
                   <button
-                    type="submit"
+                    type="button"
                     className="glass-button-secondary"
                     style={styles.subtaskAddBtn}
+                    onClick={handleAddSubtask}
                   >
                     Añadir
                   </button>
-                </form>
+                </div>
               </div>
 
               <div style={styles.inputGroup}>
@@ -799,8 +803,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                     })
                   )}
                 </div>
-                <form
-                  onSubmit={handleCreateTag}
+                <div
                   style={styles.tagCreateForm}
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -811,15 +814,22 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                     placeholder="Crear nueva etiqueta..."
                     value={newTagName}
                     onChange={(e) => setNewTagName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleCreateTag();
+                      }
+                    }}
                   />
                   <button
-                    type="submit"
+                    type="button"
                     className="glass-button-secondary"
                     style={styles.tagCreateBtn}
+                    onClick={handleCreateTag}
                   >
                     Añadir
                   </button>
-                </form>
+                </div>
               </div>
 
               {selectedTask.total_focus_time > 0 && (
