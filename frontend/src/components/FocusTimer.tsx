@@ -17,6 +17,8 @@ export const FocusTimer: React.FC<FocusTimerProps> = ({
   const [isActive, setIsActive] = useState(false);
   const [totalDuration, setTotalDuration] = useState(25 * 60); // in seconds
   const [mode, setMode] = useState<'work' | 'shortBreak' | 'longBreak'>('work');
+  const [minimized, setMinimized] = useState(false);
+  const [finishedMessage, setFinishedMessage] = useState<string | null>(null);
 
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -73,32 +75,62 @@ export const FocusTimer: React.FC<FocusTimerProps> = ({
     };
   }, [isActive, minutes, seconds]);
 
+  const fireSystemNotification = (title: string, body: string) => {
+    if (
+      typeof window === 'undefined' ||
+      !('Notification' in window) ||
+      Notification.permission !== 'granted'
+    ) {
+      return;
+    }
+    try {
+      new Notification(title, {
+        body,
+        icon: '/logo.png',
+        tag: 'alfred-focus-done',
+      });
+    } catch {
+      /* ignore */
+    }
+  };
+
   const handleTimerComplete = async () => {
     setIsActive(false);
     playAlertSound();
 
+    // Auto-expand on completion so the user sees the outcome even if the
+    // overlay was tucked away while they worked.
+    setMinimized(false);
+
     if (mode === 'work' && activeTask) {
+      const mins = totalDuration / 60;
+      const msg = `Has terminado ${mins} min en "${activeTask.title}"`;
+      setFinishedMessage(msg);
+      fireSystemNotification('Alfred — sesión completada', msg);
       try {
-        // Log focus session duration in seconds to backend
         await api.createFocusSession(activeTask.id, totalDuration);
-        alert(`¡Excelente trabajo! Has completado una sesión de enfoque de ${totalDuration / 60} minutos para: "${activeTask.title}"`);
         onSessionLogged();
       } catch (err: any) {
-        console.error("Error logging focus session:", err);
+        console.error('Error logging focus session:', err);
       }
     } else {
-      alert(`Sesión de ${mode === 'work' ? 'enfoque' : 'descanso'} completada.`);
+      const label = mode === 'work' ? 'enfoque' : 'descanso';
+      const msg = `Sesión de ${label} completada.`;
+      setFinishedMessage(msg);
+      fireSystemNotification('Alfred', msg);
     }
     resetTimer(mode);
   };
 
   const toggleTimer = () => {
+    setFinishedMessage(null);
     setIsActive(!isActive);
   };
 
   const resetTimer = (newMode = mode) => {
     setIsActive(false);
     setMode(newMode);
+    setFinishedMessage(null);
     
     let mins = 25;
     if (newMode === 'shortBreak') mins = 5;
@@ -122,20 +154,92 @@ export const FocusTimer: React.FC<FocusTimerProps> = ({
   const circumference = normalizedRadius * 2 * Math.PI;
   const strokeDashoffset = circumference - (getProgressPercent() / 100) * circumference;
 
+  const timeString = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+
+  if (minimized) {
+    // Compact pill: title + time + play/pause + expand + close.
+    return (
+      <div
+        style={{ ...styles.container, ...styles.containerMinimized }}
+        className="animate-fade-in"
+      >
+        <div className="glass-panel" style={styles.miniCard}>
+          <div style={styles.miniBody}>
+            <span style={styles.miniBell}>⏱️</span>
+            <span style={styles.miniTitle} title={activeTask?.title}>
+              {activeTask?.title || 'Sesión libre'}
+            </span>
+            <span
+              style={{
+                ...styles.miniTime,
+                color: isActive
+                  ? 'var(--accent-primary)'
+                  : 'var(--text-secondary)',
+              }}
+            >
+              {timeString}
+            </span>
+            <button
+              style={styles.miniIconBtn}
+              onClick={toggleTimer}
+              title={isActive ? 'Pausar' : 'Iniciar'}
+            >
+              {isActive ? '⏸' : '▶'}
+            </button>
+            <button
+              style={styles.miniIconBtn}
+              onClick={() => setMinimized(false)}
+              title="Expandir"
+            >
+              ⤢
+            </button>
+            <button
+              style={styles.miniIconBtn}
+              onClick={onClearActiveTask}
+              title="Cerrar"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={styles.container} className="animate-fade-in">
       <div className="glass-panel" style={styles.timerCard}>
-        {/* Overlay header with close affordance */}
+        {/* Overlay header with minimize + close affordances */}
         <div style={styles.overlayHeader}>
           <span style={styles.overlayTitle}>⏱️ Enfoque</span>
-          <button
-            style={styles.overlayCloseBtn}
-            onClick={onClearActiveTask}
-            title="Cerrar"
-          >
-            ✕
-          </button>
+          <span style={styles.overlayHeaderActions}>
+            <button
+              style={styles.overlayCloseBtn}
+              onClick={() => setMinimized(true)}
+              title="Minimizar"
+            >
+              —
+            </button>
+            <button
+              style={styles.overlayCloseBtn}
+              onClick={onClearActiveTask}
+              title="Cerrar"
+            >
+              ✕
+            </button>
+          </span>
         </div>
+
+        {finishedMessage && (
+          <div
+            style={styles.finishedBanner}
+            className="animate-fade-in"
+            onClick={() => setFinishedMessage(null)}
+            title="Cerrar aviso"
+          >
+            ✅ {finishedMessage}
+          </div>
+        )}
 
         {/* Presets Selection */}
         <div style={styles.presets}>
@@ -272,6 +376,10 @@ const styles: Record<string, React.CSSProperties> = {
     letterSpacing: '0.5px',
     textTransform: 'uppercase',
   },
+  overlayHeaderActions: {
+    display: 'inline-flex',
+    gap: '4px',
+  },
   overlayCloseBtn: {
     background: 'transparent',
     border: 'none',
@@ -280,6 +388,57 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '14px',
     padding: '4px 8px',
     borderRadius: '6px',
+  },
+  // -- Minimized layout --------------------------------------------------
+  containerMinimized: {
+    maxWidth: '320px',
+  },
+  miniCard: {
+    padding: '8px 12px',
+  },
+  miniBody: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  miniBell: {
+    fontSize: '14px',
+  },
+  miniTitle: {
+    flex: 1,
+    fontSize: '12px',
+    fontWeight: 500,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    color: 'var(--text-primary)',
+  },
+  miniTime: {
+    fontSize: '13px',
+    fontWeight: 600,
+    fontVariantNumeric: 'tabular-nums',
+    letterSpacing: '-0.5px',
+  },
+  miniIconBtn: {
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
+    fontSize: '12px',
+    padding: '2px 6px',
+    borderRadius: '4px',
+  },
+  // -- Completion banner -------------------------------------------------
+  finishedBanner: {
+    background: 'rgba(16, 185, 129, 0.12)',
+    border: '1px solid rgba(16, 185, 129, 0.45)',
+    color: '#a7f3d0',
+    padding: '8px 12px',
+    borderRadius: 'var(--border-radius-sm)',
+    fontSize: '12px',
+    cursor: 'pointer',
+    textAlign: 'center',
+    width: '100%',
   },
   presets: {
     display: 'flex',
