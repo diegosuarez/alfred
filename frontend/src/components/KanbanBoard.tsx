@@ -7,14 +7,6 @@ interface Tag {
   color?: string | null;
 }
 
-interface SubTask {
-  id: number;
-  task_id: number;
-  title: string;
-  completed: boolean;
-  position: number;
-}
-
 interface Task {
   id: number;
   title: string;
@@ -24,9 +16,11 @@ interface Task {
   position: number;
   column_id: number;
   board_id: number;
+  parent_task_id?: number | null;
+  completed: boolean;
   total_focus_time: number;
   tags: Tag[];
-  subtasks: SubTask[];
+  children: Task[];
 }
 
 interface Column {
@@ -144,13 +138,11 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
     }
   };
 
-  const handleToggleSubtask = async (sub: SubTask) => {
+  const handleToggleSubtask = async (child: Task) => {
     try {
-      await api.updateSubtask(sub.id, { completed: !sub.completed });
-      // If the modal is open and showing this subtask's parent, refresh the
-      // modal too; otherwise just refresh the board so cards pick up the
-      // change.
-      if (selectedTask && selectedTask.id === sub.task_id) {
+      await api.updateTask(child.id, { completed: !child.completed });
+      const parentId = child.parent_task_id ?? null;
+      if (selectedTask && parentId === selectedTask.id) {
         await refreshSelectedTask(selectedTask.id);
       } else {
         await fetchBoardDetails();
@@ -160,10 +152,11 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
     }
   };
 
-  const handleDeleteSubtask = async (subId: number) => {
+  const handleDeleteSubtask = async (childId: number) => {
     if (!selectedTask) return;
+    if (!confirm('¿Borrar esta subtarea?')) return;
     try {
-      await api.deleteSubtask(subId);
+      await api.deleteTask(childId);
       await refreshSelectedTask(selectedTask.id);
     } catch (err: any) {
       alert(err.message);
@@ -490,10 +483,10 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                         ⏱️ {formatFocusTime(task.total_focus_time)}
                       </span>
                     )}
-                    {(task.subtasks ?? []).length > 0 && (
+                    {(task.children ?? []).length > 0 && (
                       <span style={styles.subtaskCounter}>
-                        ☑ {(task.subtasks ?? []).filter((s) => s.completed).length}/
-                        {(task.subtasks ?? []).length}
+                        ☑ {(task.children ?? []).filter((s) => s.completed).length}/
+                        {(task.children ?? []).length}
                       </span>
                     )}
                   </div>
@@ -501,12 +494,12 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                   {task.description && (
                     <p style={styles.taskDesc}>{task.description}</p>
                   )}
-                  {(task.subtasks ?? []).length > 0 && (
+                  {(task.children ?? []).length > 0 && (
                     <ul
                       style={styles.cardSubtaskList}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      {(task.subtasks ?? []).slice(0, 4).map((sub) => (
+                      {(task.children ?? []).slice(0, 4).map((sub) => (
                         <li key={sub.id} style={styles.cardSubtaskItem}>
                           <input
                             type="checkbox"
@@ -525,9 +518,9 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                           </span>
                         </li>
                       ))}
-                      {(task.subtasks ?? []).length > 4 && (
+                      {(task.children ?? []).length > 4 && (
                         <li style={styles.cardSubtaskMore}>
-                          +{(task.subtasks ?? []).length - 4} más
+                          +{(task.children ?? []).length - 4} más
                         </li>
                       )}
                     </ul>
@@ -707,16 +700,16 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
               <div style={styles.inputGroup}>
                 <label style={styles.label}>
                   Subtareas{' '}
-                  {(selectedTask.subtasks ?? []).length > 0 && (
+                  {(selectedTask.children ?? []).length > 0 && (
                     <span style={styles.subtaskLabelCount}>
-                      ({(selectedTask.subtasks ?? []).filter((s) => s.completed).length}
-                      /{(selectedTask.subtasks ?? []).length})
+                      ({(selectedTask.children ?? []).filter((s) => s.completed).length}
+                      /{(selectedTask.children ?? []).length})
                     </span>
                   )}
                 </label>
-                {(selectedTask.subtasks ?? []).length > 0 && (
+                {(selectedTask.children ?? []).length > 0 && (
                   <ul style={styles.subtaskList}>
-                    {(selectedTask.subtasks ?? []).map((sub) => (
+                    {(selectedTask.children ?? []).map((sub) => (
                       <li key={sub.id} style={styles.subtaskItem}>
                         <input
                           type="checkbox"
@@ -728,9 +721,28 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                           style={{
                             ...styles.subtaskTitle,
                             ...(sub.completed ? styles.subtaskTitleDone : {}),
+                            cursor: 'pointer',
                           }}
+                          onClick={() => setSelectedTask(sub)}
+                          title="Abrir subtarea como tarea completa"
                         >
+                          <span
+                            style={{
+                              ...styles.subtaskPriorityDot,
+                              backgroundColor: getPriorityColor(sub.priority),
+                            }}
+                          />
                           {sub.title}
+                          {sub.due_date && (
+                            <span style={styles.subtaskDueDate}>
+                              · 📅 {new Date(sub.due_date).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
+                            </span>
+                          )}
+                          {sub.tags.length > 0 && (
+                            <span style={styles.subtaskTagHint}>
+                              · {sub.tags.map((t) => t.name).join(', ')}
+                            </span>
+                          )}
                         </span>
                         <button
                           type="button"
@@ -1289,6 +1301,26 @@ const styles: Record<string, React.CSSProperties> = {
   subtaskTitleDone: {
     color: 'var(--text-muted)',
     textDecoration: 'line-through',
+  },
+  subtaskPriorityDot: {
+    display: 'inline-block',
+    width: '8px',
+    height: '8px',
+    borderRadius: '50%',
+    marginRight: '6px',
+    verticalAlign: 'middle',
+    flexShrink: 0,
+  },
+  subtaskDueDate: {
+    fontSize: '11px',
+    color: 'var(--text-muted)',
+    marginLeft: '8px',
+  },
+  subtaskTagHint: {
+    fontSize: '11px',
+    color: 'var(--text-muted)',
+    marginLeft: '4px',
+    fontStyle: 'italic',
   },
   subtaskDelete: {
     background: 'transparent',

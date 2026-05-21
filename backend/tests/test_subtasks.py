@@ -1,115 +1,136 @@
+"""Subtasks are now first-class Task rows linked via parent_task_id."""
 from httpx import AsyncClient
 
 
-async def _make_task(client: AsyncClient, headers: dict[str, str]) -> int:
-    board = (await client.post("/api/boards", json={"name": "B"}, headers=headers)).json()
-    detail = (await client.get(f"/api/boards/{board['id']}", headers=headers)).json()
+async def _make_parent_task(
+    client: AsyncClient, headers: dict[str, str]
+) -> tuple[int, int]:
+    """Returns (parent_task_id, column_id)."""
+    board = (
+        await client.post("/api/boards", json={"name": "B"}, headers=headers)
+    ).json()
+    detail = (
+        await client.get(f"/api/boards/{board['id']}", headers=headers)
+    ).json()
     column_id = detail["columns"][0]["id"]
     task = (
         await client.post(
             f"/api/columns/{column_id}/tasks",
-            json={"title": "Parent", "column_id": column_id},
+            json={"title": "Parent"},
             headers=headers,
         )
     ).json()
-    return task["id"]
+    return task["id"], column_id
 
 
-async def test_create_subtask(
+async def test_create_subtask_via_convenience_route(
     client: AsyncClient, auth_headers: dict[str, str]
 ) -> None:
-    task_id = await _make_task(client, auth_headers)
+    parent_id, _ = await _make_parent_task(client, auth_headers)
     resp = await client.post(
-        f"/api/tasks/{task_id}/subtasks",
+        f"/api/tasks/{parent_id}/subtasks",
         json={"title": "Step 1"},
         headers=auth_headers,
     )
     assert resp.status_code == 200
-    body = resp.json()
-    assert body["title"] == "Step 1"
-    assert body["completed"] is False
-    assert body["position"] == 0
-    assert body["task_id"] == task_id
+    child = resp.json()
+    assert child["title"] == "Step 1"
+    assert child["parent_task_id"] == parent_id
+    assert child["completed"] is False
+    # Full-fledged task: it has columns/board inherited from parent.
+    assert child["column_id"] is not None
+    assert child["board_id"] is not None
 
 
-async def test_subtask_positions_increment(
+async def test_create_subtask_via_columns_route(
     client: AsyncClient, auth_headers: dict[str, str]
 ) -> None:
-    task_id = await _make_task(client, auth_headers)
-    positions = []
-    for title in ["A", "B", "C"]:
-        r = await client.post(
-            f"/api/tasks/{task_id}/subtasks",
-            json={"title": title},
-            headers=auth_headers,
-        )
-        positions.append(r.json()["position"])
-    assert positions == [0, 1, 2]
+    parent_id, column_id = await _make_parent_task(client, auth_headers)
+    resp = await client.post(
+        f"/api/columns/{column_id}/tasks",
+        json={"title": "Step 1", "parent_task_id": parent_id, "priority": "high"},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    child = resp.json()
+    assert child["parent_task_id"] == parent_id
+    assert child["priority"] == "high"
 
 
-async def test_toggle_subtask_completed(
+async def test_subtask_supports_full_task_fields(
     client: AsyncClient, auth_headers: dict[str, str]
 ) -> None:
-    task_id = await _make_task(client, auth_headers)
-    sub = (
+    parent_id, _ = await _make_parent_task(client, auth_headers)
+    tag = (
+        await client.post("/api/tags", json={"name": "urgent"}, headers=auth_headers)
+    ).json()
+
+    resp = await client.post(
+        f"/api/tasks/{parent_id}/subtasks",
+        json={
+            "title": "Detailed step",
+            "description": "with body",
+            "priority": "high",
+            "due_date": "2026-12-31T00:00:00",
+            "tag_ids": [tag["id"]],
+        },
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    child = resp.json()
+    assert child["description"] == "with body"
+    assert child["priority"] == "high"
+    assert child["due_date"].startswith("2026-12-31")
+    assert [t["name"] for t in child["tags"]] == ["urgent"]
+
+
+async def test_toggle_completed(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    parent_id, _ = await _make_parent_task(client, auth_headers)
+    child = (
         await client.post(
-            f"/api/tasks/{task_id}/subtasks",
+            f"/api/tasks/{parent_id}/subtasks",
             json={"title": "Toggle"},
             headers=auth_headers,
         )
     ).json()
 
     done = await client.put(
-        f"/api/subtasks/{sub['id']}",
+        f"/api/tasks/{child['id']}",
         json={"completed": True},
         headers=auth_headers,
     )
     assert done.json()["completed"] is True
 
-    reopen = await client.put(
-        f"/api/subtasks/{sub['id']}",
+    reopened = await client.put(
+        f"/api/tasks/{child['id']}",
         json={"completed": False},
         headers=auth_headers,
     )
-    assert reopen.json()["completed"] is False
+    assert reopened.json()["completed"] is False
 
 
-async def test_delete_subtask(
+async def test_delete_subtask_via_tasks_route(
     client: AsyncClient, auth_headers: dict[str, str]
 ) -> None:
-    task_id = await _make_task(client, auth_headers)
-    sub = (
+    parent_id, _ = await _make_parent_task(client, auth_headers)
+    child = (
         await client.post(
-            f"/api/tasks/{task_id}/subtasks",
+            f"/api/tasks/{parent_id}/subtasks",
             json={"title": "Gone"},
             headers=auth_headers,
         )
     ).json()
-    resp = await client.delete(f"/api/subtasks/{sub['id']}", headers=auth_headers)
+
+    resp = await client.delete(f"/api/tasks/{child['id']}", headers=auth_headers)
     assert resp.status_code == 204
-    second = await client.delete(f"/api/subtasks/{sub['id']}", headers=auth_headers)
-    assert second.status_code == 404
+    assert (
+        await client.delete(f"/api/tasks/{child['id']}", headers=auth_headers)
+    ).status_code == 404
 
 
-async def test_task_response_includes_subtasks(
-    client: AsyncClient, auth_headers: dict[str, str]
-) -> None:
-    task_id = await _make_task(client, auth_headers)
-    await client.post(
-        f"/api/tasks/{task_id}/subtasks",
-        json={"title": "S1"},
-        headers=auth_headers,
-    )
-
-    updated = await client.put(
-        f"/api/tasks/{task_id}",
-        json={"title": "Parent (renamed)"},
-        headers=auth_headers,
-    )
-    assert [s["title"] for s in updated.json()["subtasks"]] == ["S1"]
-
-
-async def test_board_detail_includes_subtasks(
+async def test_board_detail_nests_children_under_parent(
     client: AsyncClient, auth_headers: dict[str, str]
 ) -> None:
     board = (
@@ -119,85 +140,131 @@ async def test_board_detail_includes_subtasks(
         await client.get(f"/api/boards/{board['id']}", headers=auth_headers)
     ).json()
     column_id = detail["columns"][0]["id"]
-    task = (
+
+    parent = (
         await client.post(
             f"/api/columns/{column_id}/tasks",
-            json={"title": "Parent", "column_id": column_id},
+            json={"title": "Parent"},
             headers=auth_headers,
         )
     ).json()
     await client.post(
-        f"/api/tasks/{task['id']}/subtasks",
-        json={"title": "S1"},
+        f"/api/tasks/{parent['id']}/subtasks",
+        json={"title": "Child A"},
+        headers=auth_headers,
+    )
+    await client.post(
+        f"/api/tasks/{parent['id']}/subtasks",
+        json={"title": "Child B"},
         headers=auth_headers,
     )
 
     refreshed = (
         await client.get(f"/api/boards/{board['id']}", headers=auth_headers)
     ).json()
-    parent = refreshed["columns"][0]["tasks"][0]
-    assert [s["title"] for s in parent["subtasks"]] == ["S1"]
+    column = refreshed["columns"][0]
+    # Top-level list has only the parent — children are nested, not flat.
+    assert [t["title"] for t in column["tasks"]] == ["Parent"]
+    titles = [c["title"] for c in column["tasks"][0]["children"]]
+    assert titles == ["Child A", "Child B"]
 
 
-async def test_subtask_ownership_is_enforced(
+async def test_delete_parent_cascades_to_children(
     client: AsyncClient, auth_headers: dict[str, str]
 ) -> None:
-    task_id = await _make_task(client, auth_headers)
-    sub = (
+    parent_id, _ = await _make_parent_task(client, auth_headers)
+    child = (
         await client.post(
-            f"/api/tasks/{task_id}/subtasks",
-            json={"title": "Mine"},
-            headers=auth_headers,
-        )
-    ).json()
-
-    await client.post(
-        "/api/auth/register",
-        json={"email": "intruder@example.com", "password": "longenough"},
-    )
-    login = await client.post(
-        "/api/auth/login",
-        data={"username": "intruder@example.com", "password": "longenough"},
-    )
-    other = {"Authorization": f"Bearer {login.json()['access_token']}"}
-
-    # Foreign user cannot list/update/delete the subtask via either endpoint.
-    assert (
-        await client.put(
-            f"/api/subtasks/{sub['id']}",
-            json={"title": "hacked"},
-            headers=other,
-        )
-    ).status_code == 404
-    assert (
-        await client.delete(f"/api/subtasks/{sub['id']}", headers=other)
-    ).status_code == 404
-    assert (
-        await client.post(
-            f"/api/tasks/{task_id}/subtasks",
-            json={"title": "X"},
-            headers=other,
-        )
-    ).status_code == 404
-
-
-async def test_delete_task_cascades_subtasks(
-    client: AsyncClient, auth_headers: dict[str, str]
-) -> None:
-    task_id = await _make_task(client, auth_headers)
-    sub = (
-        await client.post(
-            f"/api/tasks/{task_id}/subtasks",
+            f"/api/tasks/{parent_id}/subtasks",
             json={"title": "Doomed"},
             headers=auth_headers,
         )
     ).json()
-    await client.delete(f"/api/tasks/{task_id}", headers=auth_headers)
-    # Subtask should be gone too — best signal is that updating it 404s.
+    await client.delete(f"/api/tasks/{parent_id}", headers=auth_headers)
+
     assert (
         await client.put(
-            f"/api/subtasks/{sub['id']}",
-            json={"title": "Z"},
+            f"/api/tasks/{child['id']}",
+            json={"title": "still here?"},
             headers=auth_headers,
         )
     ).status_code == 404
+
+
+async def test_subtask_ownership_enforced(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    parent_id, _ = await _make_parent_task(client, auth_headers)
+
+    await client.post(
+        "/api/auth/register",
+        json={"email": "stranger@example.com", "password": "longenough"},
+    )
+    login = await client.post(
+        "/api/auth/login",
+        data={"username": "stranger@example.com", "password": "longenough"},
+    )
+    other = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    assert (
+        await client.post(
+            f"/api/tasks/{parent_id}/subtasks",
+            json={"title": "sneaky"},
+            headers=other,
+        )
+    ).status_code == 404
+
+
+async def test_promote_task_to_subtask_via_update(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    """Setting parent_task_id on an existing task turns it into a child."""
+    board = (
+        await client.post("/api/boards", json={"name": "B"}, headers=auth_headers)
+    ).json()
+    detail = (
+        await client.get(f"/api/boards/{board['id']}", headers=auth_headers)
+    ).json()
+    column_id = detail["columns"][0]["id"]
+
+    a = (
+        await client.post(
+            f"/api/columns/{column_id}/tasks",
+            json={"title": "A"},
+            headers=auth_headers,
+        )
+    ).json()
+    b = (
+        await client.post(
+            f"/api/columns/{column_id}/tasks",
+            json={"title": "B"},
+            headers=auth_headers,
+        )
+    ).json()
+
+    nested = await client.put(
+        f"/api/tasks/{b['id']}",
+        json={"parent_task_id": a["id"]},
+        headers=auth_headers,
+    )
+    assert nested.json()["parent_task_id"] == a["id"]
+
+    # Detach via sentinel 0
+    detached = await client.put(
+        f"/api/tasks/{b['id']}",
+        json={"parent_task_id": 0},
+        headers=auth_headers,
+    )
+    assert detached.json()["parent_task_id"] is None
+
+
+async def test_cannot_parent_to_self(
+    client: AsyncClient, auth_headers: dict[str, str]
+) -> None:
+    parent_id, _ = await _make_parent_task(client, auth_headers)
+    resp = await client.put(
+        f"/api/tasks/{parent_id}",
+        json={"parent_task_id": parent_id},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 400

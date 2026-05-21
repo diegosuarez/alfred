@@ -108,9 +108,16 @@ async def get_board_detail(
             selectinload(Board.columns)
             .selectinload(Column.tasks)
             .selectinload(Task.tags),
+            # Eager-load children + their tags / focus sessions so the
+            # nested rendering on the kanban card has everything it needs.
             selectinload(Board.columns)
             .selectinload(Column.tasks)
-            .selectinload(Task.subtasks),
+            .selectinload(Task.children)
+            .selectinload(Task.tags),
+            selectinload(Board.columns)
+            .selectinload(Column.tasks)
+            .selectinload(Task.children)
+            .selectinload(Task.focus_sessions),
         )
     )
     board = result.scalars().first()
@@ -118,6 +125,13 @@ async def get_board_detail(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Board not found"
         )
+
+    # Filter children out of the top-level Column.tasks list — they
+    # surface only inside their parent's `children` field. Done in
+    # Python so the relationship integrity stays untouched for ORM
+    # consumers (cascade etc.).
+    for col in board.columns:
+        col.tasks = [t for t in col.tasks if t.parent_task_id is None]
     return board
 
 

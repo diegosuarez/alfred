@@ -244,25 +244,13 @@ export const api = {
       body: JSON.stringify({ task_ids: taskIds, column_id: columnId }),
     }),
 
-  // Subtasks
-  createSubtask: (taskId: number, title: string) =>
-    request(`/tasks/${taskId}/subtasks`, {
+  // Subtasks (a child task — full Task under a parent via parent_task_id).
+  // The convenience POST inherits column/board from the parent so the
+  // SPA doesn't have to know them.
+  createSubtask: (parentTaskId: number, title: string) =>
+    request(`/tasks/${parentTaskId}/subtasks`, {
       method: 'POST',
       body: JSON.stringify({ title }),
-    }),
-
-  updateSubtask: (
-    subtaskId: number,
-    data: { title?: string; completed?: boolean; position?: number },
-  ) =>
-    request(`/subtasks/${subtaskId}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }),
-
-  deleteSubtask: (subtaskId: number) =>
-    request(`/subtasks/${subtaskId}`, {
-      method: 'DELETE',
     }),
 
   // Focus (Pomodoro)
