@@ -10,7 +10,11 @@ from app.models.board import Board
 from app.models.reminder import Reminder
 from app.models.task import Task
 from app.models.user import User
-from app.schemas.reminder import ReminderCreate, ReminderResponse
+from app.schemas.reminder import (
+    PendingReminderResponse,
+    ReminderCreate,
+    ReminderResponse,
+)
 
 router = APIRouter(prefix="", tags=["reminders"])
 
@@ -76,16 +80,17 @@ async def delete_reminder(
     return None
 
 
-@router.get("/reminders/pending", response_model=List[ReminderResponse])
+@router.get("/reminders/pending", response_model=List[PendingReminderResponse])
 async def list_pending_reminders(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Every reminder for the caller whose owning task is still live
     (i.e. not archived). Past-due ones are included so the SPA can fire
-    them immediately when the user comes back online."""
+    them immediately when the user comes back online. Each row carries
+    the task title so the SPA can render the alert without a follow-up."""
     result = await db.execute(
-        select(Reminder)
+        select(Reminder, Task.title)
         .join(Task, Reminder.task_id == Task.id)
         .join(Board, Task.board_id == Board.id)
         .filter(
@@ -94,4 +99,13 @@ async def list_pending_reminders(
         )
         .order_by(Reminder.remind_at)
     )
-    return result.scalars().all()
+    return [
+        PendingReminderResponse(
+            id=rem.id,
+            task_id=rem.task_id,
+            task_title=title,
+            remind_at=rem.remind_at,
+            created_at=rem.created_at,
+        )
+        for rem, title in result.all()
+    ]

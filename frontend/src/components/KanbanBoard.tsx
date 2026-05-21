@@ -3,11 +3,18 @@ import { api } from '../services/api';
 import { Avatar } from './Avatar';
 import { ContactPicker, type Contact } from './ContactPicker';
 import { ArchivedTasksModal } from './ArchivedTasksModal';
+import { ReminderPicker } from './ReminderPicker';
 
 interface Tag {
   id: number;
   name: string;
   color?: string | null;
+}
+
+interface Reminder {
+  id: number;
+  task_id: number;
+  remind_at: string;
 }
 
 interface Task {
@@ -25,6 +32,7 @@ interface Task {
   tags: Tag[];
   requester?: Contact | null;
   assignees: Contact[];
+  reminders: Reminder[];
   children: Task[];
 }
 
@@ -47,9 +55,18 @@ interface BoardDetail {
 interface KanbanBoardProps {
   boardId: number;
   onStartFocus: (task: { id: number; title: string }) => void;
+  onRemindersChanged?: () => void;
+  /** When App.tsx wants the modal to open a specific task (e.g. from
+   * clicking a fired reminder), it bumps this id. */
+  externalTaskFocus?: number | null;
 }
 
-export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus }) => {
+export const KanbanBoard: React.FC<KanbanBoardProps> = ({
+  boardId,
+  onStartFocus,
+  onRemindersChanged,
+  externalTaskFocus,
+}) => {
   const [board, setBoard] = useState<BoardDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -76,6 +93,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
   const [allContacts, setAllContacts] = useState<Contact[]>([]);
   const [archiveModalColumn, setArchiveModalColumn] = useState<{ id: number; name: string } | null>(null);
   const [columnMenuOpenId, setColumnMenuOpenId] = useState<number | null>(null);
+  const [showReminderPicker, setShowReminderPicker] = useState(false);
 
   const fetchBoardDetails = async () => {
     try {
@@ -305,6 +323,42 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
     }
   };
 
+  const handleCreateReminder = async (remindAtIso: string) => {
+    if (!selectedTask) return;
+    await api.createReminder(selectedTask.id, remindAtIso);
+    await refreshSelectedTask(selectedTask.id);
+    onRemindersChanged?.();
+  };
+
+  const handleDeleteReminder = async (reminderId: number) => {
+    if (!selectedTask) return;
+    try {
+      await api.deleteReminder(reminderId);
+      await refreshSelectedTask(selectedTask.id);
+      onRemindersChanged?.();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  // App may ask us to open a specific task (e.g. from a reminder click).
+  useEffect(() => {
+    if (externalTaskFocus == null || !board) return;
+    for (const col of board.columns) {
+      for (const t of col.tasks) {
+        if (t.id === externalTaskFocus) {
+          setSelectedTask(t);
+          return;
+        }
+        const child = t.children?.find((c) => c.id === externalTaskFocus);
+        if (child) {
+          setSelectedTask(child as Task);
+          return;
+        }
+      }
+    }
+  }, [externalTaskFocus, board]);
+
   const handleArchiveTask = async () => {
     if (!selectedTask) return;
     try {
@@ -490,6 +544,16 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
             <span style={styles.subtaskCounter}>
               ☑ {(task.children ?? []).filter((s) => s.completed).length}/
               {(task.children ?? []).length}
+            </span>
+          )}
+          {(task.reminders ?? []).length > 0 && (
+            <span
+              style={styles.reminderBadge}
+              title={`${(task.reminders ?? []).length} recordatorio${
+                (task.reminders ?? []).length === 1 ? '' : 's'
+              }`}
+            >
+              🔔 {(task.reminders ?? []).length}
             </span>
           )}
         </div>
@@ -1079,6 +1143,65 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
                 </div>
               </div>
 
+              <div style={styles.inputGroup}>
+                <label style={styles.label}>
+                  Recordatorios{' '}
+                  {(selectedTask.reminders ?? []).length > 0 && (
+                    <span style={styles.subtaskLabelCount}>
+                      ({(selectedTask.reminders ?? []).length})
+                    </span>
+                  )}
+                </label>
+                {(selectedTask.reminders ?? []).length > 0 && (
+                  <ul style={styles.reminderList}>
+                    {(selectedTask.reminders ?? []).map((r) => {
+                      const when = new Date(r.remind_at);
+                      const past = when.getTime() < Date.now();
+                      return (
+                        <li key={r.id} style={styles.reminderItem}>
+                          <span style={styles.reminderBell}>🔔</span>
+                          <span
+                            style={{
+                              ...styles.reminderWhen,
+                              ...(past ? styles.reminderPast : {}),
+                            }}
+                          >
+                            {when.toLocaleString('es-ES', {
+                              weekday: 'short',
+                              day: 'numeric',
+                              month: 'short',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                            {past && (
+                              <span style={styles.reminderPastTag}>
+                                pendiente
+                              </span>
+                            )}
+                          </span>
+                          <button
+                            type="button"
+                            style={styles.subtaskDelete}
+                            onClick={() => handleDeleteReminder(r.id)}
+                            title="Eliminar recordatorio"
+                          >
+                            ✕
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+                <button
+                  type="button"
+                  className="glass-button-secondary"
+                  style={styles.addReminderBtn}
+                  onClick={() => setShowReminderPicker(true)}
+                >
+                  ＋ Añadir recordatorio
+                </button>
+              </div>
+
               {selectedTask.total_focus_time > 0 && (
                 <div style={styles.focusAccumulated}>
                   ⏱️ <strong>Tiempo enfocado acumulado:</strong> {formatFocusTime(selectedTask.total_focus_time)}
@@ -1116,6 +1239,13 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({ boardId, onStartFocus 
           columnName={archiveModalColumn.name}
           onClose={() => setArchiveModalColumn(null)}
           onChanged={fetchBoardDetails}
+        />
+      )}
+
+      {showReminderPicker && (
+        <ReminderPicker
+          onClose={() => setShowReminderPicker(false)}
+          onPick={handleCreateReminder}
         />
       )}
     </div>
@@ -1571,6 +1701,53 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     gap: '8px',
     alignItems: 'center',
+  },
+  reminderBadge: {
+    fontSize: '10px',
+    color: 'var(--accent-warning)',
+    background: 'rgba(245,158,11,0.12)',
+    border: '1px solid rgba(245,158,11,0.45)',
+    borderRadius: '999px',
+    padding: '2px 8px',
+  },
+  reminderList: {
+    listStyle: 'none',
+    padding: 0,
+    margin: '0 0 10px 0',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+  },
+  reminderItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    padding: '8px 10px',
+    background: 'rgba(245,158,11,0.06)',
+    border: '1px solid rgba(245,158,11,0.30)',
+    borderRadius: 'var(--border-radius-sm)',
+  },
+  reminderBell: { fontSize: '14px' },
+  reminderWhen: {
+    fontSize: '13px',
+    flex: 1,
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  reminderPast: { color: 'var(--accent-warning)' },
+  reminderPastTag: {
+    fontSize: '10px',
+    background: 'rgba(245,158,11,0.18)',
+    color: 'var(--accent-warning)',
+    padding: '1px 6px',
+    borderRadius: '999px',
+    border: '1px solid rgba(245,158,11,0.45)',
+  },
+  addReminderBtn: {
+    width: '100%',
+    padding: '8px',
+    fontSize: '12px',
   },
   peopleRow: {
     display: 'flex',

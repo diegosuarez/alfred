@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Auth } from './components/Auth';
 import { Sidebar } from './components/Sidebar';
 import { KanbanBoard } from './components/KanbanBoard';
@@ -8,6 +8,7 @@ import { QuickCapture } from './components/QuickCapture';
 import { GoogleSettings } from './components/GoogleSettings';
 import { TokensSettings } from './components/TokensSettings';
 import { ContactsSettings } from './components/ContactsSettings';
+import { ReminderAlerts, type FiredReminder } from './components/ReminderAlerts';
 import { api, getToken, setToken } from './services/api';
 
 interface Context {
@@ -47,6 +48,11 @@ export const App: React.FC = () => {
   // PAT (Personal Access Tokens) modal
   const [showTokens, setShowTokens] = useState(false);
   const [showContacts, setShowContacts] = useState(false);
+
+  // Reminder scheduler state
+  const [firedReminders, setFiredReminders] = useState<FiredReminder[]>([]);
+  const [externalTaskFocus, setExternalTaskFocus] = useState<number | null>(null);
+  const scheduledTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
 
   // Decodes JWT payload to extract user metadata
   const parseUserEmail = (token: string) => {
@@ -145,6 +151,102 @@ export const App: React.FC = () => {
       loadContextsAndBoards();
     }
   }, [isAuthenticated, refreshTrigger]);
+
+  const fireReminder = (r: { id: number; task_id: number; task_title: string; remind_at: string }) => {
+    setFiredReminders((prev) => {
+      if (prev.some((f) => f.reminderId === r.id)) return prev;
+      return [
+        ...prev,
+        {
+          reminderId: r.id,
+          taskId: r.task_id,
+          taskTitle: r.task_title,
+          remindAt: r.remind_at,
+        },
+      ];
+    });
+    // Chrome notification — only if the user has previously granted it.
+    if (
+      typeof window !== 'undefined' &&
+      'Notification' in window &&
+      Notification.permission === 'granted'
+    ) {
+      try {
+        const n = new Notification(r.task_title, {
+          body: 'Recordatorio de Alfred',
+          icon: '/logo.png',
+          tag: `alfred-reminder-${r.id}`,
+        });
+        n.onclick = () => {
+          window.focus();
+          setExternalTaskFocus(r.task_id);
+          n.close();
+        };
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+
+  const reloadReminders = async () => {
+    try {
+      const list: Array<{
+        id: number;
+        task_id: number;
+        task_title: string;
+        remind_at: string;
+      }> = await api.getPendingReminders();
+
+      // Clear any previously-scheduled timers — we'll set fresh ones from
+      // the latest list (handles deletes, creates and tab-resume cases).
+      for (const t of scheduledTimers.current.values()) clearTimeout(t);
+      scheduledTimers.current.clear();
+
+      const now = Date.now();
+      for (const r of list) {
+        if (firedReminders.some((f) => f.reminderId === r.id)) continue;
+        const due = new Date(r.remind_at).getTime();
+        if (due <= now) {
+          fireReminder(r);
+        } else {
+          // setTimeout caps at ~2^31 ms (~24.8 days). For anything beyond
+          // that we rely on the periodic poll below.
+          const delay = Math.min(due - now, 2 ** 31 - 1);
+          const t = setTimeout(() => fireReminder(r), delay);
+          scheduledTimers.current.set(r.id, t);
+        }
+      }
+    } catch (err) {
+      console.error('Error loading reminders:', err);
+    }
+  };
+
+  // Boot + periodic re-poll + on-focus re-poll so long-running tabs
+  // keep firing reminders even if the JS timer drifted while the tab
+  // was backgrounded.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    reloadReminders();
+    const id = setInterval(reloadReminders, 5 * 60 * 1000); // 5min
+    const onFocus = () => reloadReminders();
+    window.addEventListener('focus', onFocus);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener('focus', onFocus);
+      for (const t of scheduledTimers.current.values()) clearTimeout(t);
+      scheduledTimers.current.clear();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
+
+  const dismissReminder = async (reminderId: number) => {
+    setFiredReminders((prev) => prev.filter((f) => f.reminderId !== reminderId));
+    try {
+      await api.deleteReminder(reminderId);
+    } catch (err) {
+      console.error('Error dismissing reminder:', err);
+    }
+  };
 
   const handleLoginSuccess = () => {
     const token = getToken();
@@ -357,6 +459,24 @@ export const App: React.FC = () => {
             key={`${activeBoardId}-${refreshTrigger}`}
             boardId={activeBoardId}
             onStartFocus={handleStartFocus}
+            onRemindersChanged={async () => {
+              // Ask for Notification permission on the first reminder
+              // the user creates per session, in a user-gesture-driven
+              // moment (Chrome blocks "on page load" requests anyway).
+              if (
+                typeof window !== 'undefined' &&
+                'Notification' in window &&
+                Notification.permission === 'default'
+              ) {
+                try {
+                  await Notification.requestPermission();
+                } catch {
+                  /* ignore */
+                }
+              }
+              reloadReminders();
+            }}
+            externalTaskFocus={externalTaskFocus}
           />
         )}
         {currentView === 'stats' && (
@@ -392,6 +512,16 @@ export const App: React.FC = () => {
           onChanged={handleTaskCaptured /* force board refresh */}
         />
       )}
+
+      <ReminderAlerts
+        fired={firedReminders}
+        onDismiss={dismissReminder}
+        onOpenTask={(taskId) => {
+          // Make sure we're on the board view so the task modal can mount.
+          setCurrentView('board');
+          setExternalTaskFocus(taskId);
+        }}
+      />
     </div>
   );
 };

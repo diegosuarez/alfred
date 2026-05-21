@@ -277,6 +277,18 @@ export const api = {
   getArchivedInColumn: (columnId: number) =>
     request(`/columns/${columnId}/archived-tasks`),
 
+  // Reminders
+  createReminder: (taskId: number, remindAtIso: string) =>
+    request(`/tasks/${taskId}/reminders`, {
+      method: 'POST',
+      body: JSON.stringify({ remind_at: remindAtIso }),
+    }),
+
+  deleteReminder: (reminderId: number) =>
+    request(`/reminders/${reminderId}`, { method: 'DELETE' }),
+
+  getPendingReminders: () => request('/reminders/pending'),
+
   deleteTask: (taskId: number) => 
     request(`/tasks/${taskId}`, {
       method: 'DELETE',

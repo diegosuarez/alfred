@@ -14,3 +14,14 @@ class ReminderResponse(BaseModel):
     task_id: int
     remind_at: datetime
     created_at: datetime
+
+
+class PendingReminderResponse(BaseModel):
+    """Used by /reminders/pending — folds in the task title so the SPA
+    can render the alert without an extra round-trip."""
+
+    id: int
+    task_id: int
+    task_title: str
+    remind_at: datetime
+    created_at: datetime
