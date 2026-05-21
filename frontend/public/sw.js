@@ -12,12 +12,21 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('push', (event) => {
+  console.log('[Alfred SW] push event received', event);
   let data = {};
   try {
     data = event.data ? event.data.json() : {};
   } catch (_) {
-    /* malformed payload — fall back to defaults */
+    // DevTools' "test push message" button sends a non-JSON body; that's
+    // fine, we fall through to defaults.
+    try {
+      const text = event.data ? event.data.text() : '';
+      data = { body: text || 'Recordatorio' };
+    } catch (__) {
+      /* no-op */
+    }
   }
+  console.log('[Alfred SW] payload:', data);
   const title = data.title || 'Alfred';
   const options = {
     body: data.body || 'Recordatorio',
@@ -29,9 +38,16 @@ self.addEventListener('push', (event) => {
       reminder_id: data.reminder_id,
       remind_at: data.remind_at,
     },
-    requireInteraction: false,
+    // Stays visible until the user interacts with it — helps debug if
+    // the OS notification center is hiding short-lived alerts.
+    requireInteraction: true,
   };
-  event.waitUntil(self.registration.showNotification(title, options));
+  event.waitUntil(
+    self.registration.showNotification(title, options).then(
+      () => console.log('[Alfred SW] showNotification resolved'),
+      (err) => console.error('[Alfred SW] showNotification rejected:', err),
+    ),
+  );
 });
 
 self.addEventListener('notificationclick', (event) => {

@@ -82,6 +82,41 @@ export const TokensSettings: React.FC<TokensSettingsProps> = ({ onClose }) => {
     }
   };
 
+  const handleTestPageNotification = () => {
+    if (!('Notification' in window)) {
+      alert('Tu navegador no soporta Notification.');
+      return;
+    }
+    if (Notification.permission !== 'granted') {
+      alert(`Notification.permission = "${Notification.permission}". Concédelo primero.`);
+      return;
+    }
+    try {
+      const n = new Notification('Alfred — prueba directa', {
+        body: 'Si ves esto, las notificaciones del navegador funcionan.',
+        icon: '/logo.png',
+      });
+      n.onerror = (err) => console.error('Notification onerror:', err);
+    } catch (err: any) {
+      alert(`Error: ${err.message}`);
+    }
+  };
+
+  const handleTestServerPush = async () => {
+    try {
+      const result = await fetch('/api/push/test', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('alfred_token') || ''}`,
+        },
+      }).then((r) => r.json());
+      alert('Resultado del push de prueba:\n' + JSON.stringify(result, null, 2));
+    } catch (err: any) {
+      alert(`Error: ${err.message}`);
+    }
+  };
+
   const fmt = (iso?: string | null) =>
     iso ? new Date(iso).toLocaleString('es-ES') : '—';
 
@@ -142,6 +177,28 @@ export const TokensSettings: React.FC<TokensSettingsProps> = ({ onClose }) => {
               Crear
             </button>
           </form>
+        </section>
+
+        <section style={styles.section}>
+          <h3 style={styles.sectionTitle}>Diagnóstico de notificaciones</h3>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="glass-button-secondary"
+              style={{ padding: '8px 14px', fontSize: '12px' }}
+              onClick={handleTestPageNotification}
+            >
+              🔔 Notificación directa (sin SW)
+            </button>
+            <button
+              type="button"
+              className="glass-button-secondary"
+              style={{ padding: '8px 14px', fontSize: '12px' }}
+              onClick={handleTestServerPush}
+            >
+              🚀 Push del servidor (vía SW)
+            </button>
+          </div>
         </section>
 
         <section style={styles.section}>
