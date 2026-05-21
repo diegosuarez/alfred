@@ -528,6 +528,13 @@ export const App: React.FC = () => {
               reloadReminders();
             }}
             externalTaskFocus={externalTaskFocus}
+            allBoards={boards}
+            onTaskMovedToBoard={(newBoardId) => {
+              // Jump to the destination board so the user lands where
+              // the task is now living. The KanbanBoard remounts via
+              // its key and fetches fresh state.
+              setActiveBoardId(newBoardId);
+            }}
           />
         )}
         {currentView === 'stats' && (

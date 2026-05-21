@@ -271,6 +271,12 @@ export const api = {
       body: JSON.stringify(taskData),
     }),
 
+  moveTaskToBoard: (taskId: number, boardId: number, columnId: number) =>
+    request(`/tasks/${taskId}/move`, {
+      method: 'POST',
+      body: JSON.stringify({ board_id: boardId, column_id: columnId }),
+    }),
+
   archiveAllInColumn: (columnId: number) =>
     request(`/columns/${columnId}/archive-all`, { method: 'POST' }),
 

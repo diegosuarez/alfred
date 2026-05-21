@@ -52,6 +52,12 @@ interface BoardDetail {
   columns: Column[];
 }
 
+interface BoardSummary {
+  id: number;
+  name: string;
+  context_id?: number | null;
+}
+
 interface KanbanBoardProps {
   boardId: number;
   onStartFocus: (task: { id: number; title: string }) => void;
@@ -59,6 +65,10 @@ interface KanbanBoardProps {
   /** When App.tsx wants the modal to open a specific task (e.g. from
    * clicking a fired reminder), it bumps this id. */
   externalTaskFocus?: number | null;
+  /** Every board the user owns, so the task modal can offer a
+   * "move to another board" picker filtered by the current context. */
+  allBoards?: BoardSummary[];
+  onTaskMovedToBoard?: (newBoardId: number) => void;
 }
 
 export const KanbanBoard: React.FC<KanbanBoardProps> = ({
@@ -66,6 +76,8 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   onStartFocus,
   onRemindersChanged,
   externalTaskFocus,
+  allBoards = [],
+  onTaskMovedToBoard,
 }) => {
   const [board, setBoard] = useState<BoardDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -94,6 +106,10 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   const [archiveModalColumn, setArchiveModalColumn] = useState<{ id: number; name: string } | null>(null);
   const [columnMenuOpenId, setColumnMenuOpenId] = useState<number | null>(null);
   const [showReminderPicker, setShowReminderPicker] = useState(false);
+  const [showMovePicker, setShowMovePicker] = useState(false);
+  const [moveTargetBoardId, setMoveTargetBoardId] = useState<number | null>(null);
+  const [moveTargetColumns, setMoveTargetColumns] = useState<Column[]>([]);
+  const [moveTargetColumnId, setMoveTargetColumnId] = useState<number | null>(null);
 
   const fetchBoardDetails = async () => {
     try {
@@ -323,6 +339,53 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     }
   };
 
+  // Boards available as a move destination: same context as current,
+  // excluding the current board.
+  const moveCandidates = (() => {
+    if (!board) return [] as BoardSummary[];
+    return allBoards.filter(
+      (b) => b.id !== board.id && b.context_id === board.context_id,
+    );
+  })();
+
+  const handlePickMoveBoard = async (id: number | null) => {
+    setMoveTargetBoardId(id);
+    setMoveTargetColumnId(null);
+    setMoveTargetColumns([]);
+    if (id === null) return;
+    try {
+      const detail = await api.getBoardDetail(id);
+      setMoveTargetColumns(detail.columns || []);
+      if (detail.columns?.length) {
+        setMoveTargetColumnId(detail.columns[0].id);
+      }
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleMoveTask = async () => {
+    if (!selectedTask || moveTargetBoardId === null || moveTargetColumnId === null)
+      return;
+    try {
+      await api.moveTaskToBoard(
+        selectedTask.id,
+        moveTargetBoardId,
+        moveTargetColumnId,
+      );
+      const targetId = moveTargetBoardId;
+      setSelectedTask(null);
+      setShowMovePicker(false);
+      setMoveTargetBoardId(null);
+      setMoveTargetColumnId(null);
+      setMoveTargetColumns([]);
+      if (onTaskMovedToBoard) onTaskMovedToBoard(targetId);
+      else fetchBoardDetails();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
   const handleCreateReminder = async (remindAtIso: string) => {
     if (!selectedTask) return;
     await api.createReminder(selectedTask.id, remindAtIso);
@@ -340,6 +403,14 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
       alert(err.message);
     }
   };
+
+  // Reset the move-picker every time the modal opens on a fresh task.
+  useEffect(() => {
+    setShowMovePicker(false);
+    setMoveTargetBoardId(null);
+    setMoveTargetColumnId(null);
+    setMoveTargetColumns([]);
+  }, [selectedTask?.id]);
 
   // App may ask us to open a specific task (e.g. from a reminder click).
   useEffect(() => {
@@ -1208,9 +1279,78 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                 </div>
               )}
 
+              {showMovePicker && (
+                <div style={styles.movePickerBox} className="animate-fade-in">
+                  <label style={styles.label}>Mover a otro tablero</label>
+                  {moveCandidates.length === 0 ? (
+                    <span style={styles.movePickerEmpty}>
+                      No hay otros tableros en este contexto.
+                    </span>
+                  ) : (
+                    <div style={styles.movePickerRow}>
+                      <select
+                        className="glass-input"
+                        style={styles.movePickerSelect}
+                        value={moveTargetBoardId ?? ''}
+                        onChange={(e) =>
+                          handlePickMoveBoard(
+                            e.target.value === '' ? null : Number(e.target.value),
+                          )
+                        }
+                      >
+                        <option value="">Tablero...</option>
+                        {moveCandidates.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.name}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        className="glass-input"
+                        style={styles.movePickerSelect}
+                        value={moveTargetColumnId ?? ''}
+                        disabled={moveTargetColumns.length === 0}
+                        onChange={(e) =>
+                          setMoveTargetColumnId(
+                            e.target.value === '' ? null : Number(e.target.value),
+                          )
+                        }
+                      >
+                        <option value="">Columna...</option>
+                        {moveTargetColumns.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        className="glass-button"
+                        style={styles.movePickerSubmit}
+                        onClick={handleMoveTask}
+                        disabled={
+                          moveTargetBoardId === null ||
+                          moveTargetColumnId === null
+                        }
+                      >
+                        Mover
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div style={styles.modalActions}>
                 <span style={styles.autosaveHint}>Los cambios se guardan automáticamente</span>
                 <div style={styles.modalDangerGroup}>
+                  <button
+                    type="button"
+                    className="glass-button glass-button-secondary"
+                    onClick={() => setShowMovePicker((s) => !s)}
+                    title="Mover a otro tablero"
+                  >
+                    {showMovePicker ? '✕ Cancelar mover' : '📂 Mover'}
+                  </button>
                   <button
                     type="button"
                     className="glass-button glass-button-secondary"
@@ -1701,6 +1841,39 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'flex',
     gap: '8px',
     alignItems: 'center',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+  },
+  movePickerBox: {
+    padding: '12px 14px',
+    marginTop: '6px',
+    background: 'rgba(255,255,255,0.03)',
+    border: '1px solid var(--glass-border)',
+    borderRadius: 'var(--border-radius-sm)',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+  movePickerRow: {
+    display: 'flex',
+    gap: '8px',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  movePickerSelect: {
+    flex: 1,
+    minWidth: '140px',
+    padding: '8px 10px',
+    fontSize: '13px',
+  },
+  movePickerSubmit: {
+    padding: '8px 16px',
+    fontSize: '13px',
+  },
+  movePickerEmpty: {
+    fontSize: '12px',
+    color: 'var(--text-muted)',
+    fontStyle: 'italic',
   },
   reminderBadge: {
     fontSize: '10px',
