@@ -51,6 +51,37 @@ async def _migrate_task_schema() -> None:
                 )
             )
 
+        # Contact provenance fields, added once contacts existed locally.
+        contact_table = (
+            await conn.execute(
+                text(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type='table' AND name='contacts'"
+                )
+            )
+        ).fetchall()
+        if contact_table:
+            cresult = await conn.execute(text("PRAGMA table_info(contacts)"))
+            ccols = {row[1] for row in cresult.fetchall()}
+            if "source" not in ccols:
+                await conn.execute(
+                    text(
+                        "ALTER TABLE contacts ADD COLUMN source VARCHAR "
+                        "NOT NULL DEFAULT 'manual'"
+                    )
+                )
+            if "google_contact_id" not in ccols:
+                await conn.execute(
+                    text("ALTER TABLE contacts ADD COLUMN google_contact_id VARCHAR")
+                )
+            if "google_account_id" not in ccols:
+                await conn.execute(
+                    text(
+                        "ALTER TABLE contacts ADD COLUMN google_account_id INTEGER "
+                        "REFERENCES google_accounts(id) ON DELETE SET NULL"
+                    )
+                )
+
         # If the legacy subtasks table still has rows, fold them in as
         # children of their parent task.
         existing = (

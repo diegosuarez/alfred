@@ -57,6 +57,20 @@ class Contact(Base):
     is_favorite = Column(
         Boolean, nullable=False, default=False, server_default="0"
     )
+    # 'manual' (created by hand via API) or 'google' (synced from a
+    # Google account via the People API).
+    source = Column(
+        String, nullable=False, default="manual", server_default="manual"
+    )
+    # Stable identifier used to upsert on re-sync (e.g. "people/c12345").
+    google_contact_id = Column(String, nullable=True, index=True)
+    # Which connected Google account this contact came from. SET NULL on
+    # account delete so the contact survives a disconnect.
+    google_account_id = Column(
+        Integer,
+        ForeignKey("google_accounts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 

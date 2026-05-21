@@ -8,6 +8,14 @@ interface Contact {
   email?: string | null;
   image_url?: string | null;
   is_favorite: boolean;
+  source: 'manual' | 'google';
+  google_account_id?: number | null;
+}
+
+interface GoogleAccount {
+  id: number;
+  email: string;
+  scopes: string;
 }
 
 interface ContactsSettingsProps {
@@ -15,22 +23,27 @@ interface ContactsSettingsProps {
   onChanged: () => void;
 }
 
+const CONTACTS_SCOPE = 'https://www.googleapis.com/auth/contacts.readonly';
+
 export const ContactsSettings: React.FC<ContactsSettingsProps> = ({
   onClose,
   onChanged,
 }) => {
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [accounts, setAccounts] = useState<GoogleAccount[]>([]);
   const [loading, setLoading] = useState(true);
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [imageUrl, setImageUrl] = useState('');
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [editingDraft, setEditingDraft] = useState<Contact | null>(null);
+  const [syncingId, setSyncingId] = useState<number | null>(null);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   const load = async () => {
     try {
       setLoading(true);
-      setContacts(await api.getContacts());
+      const [contactsData, accountsData] = await Promise.all([
+        api.getContacts(),
+        api.getGoogleAccounts(),
+      ]);
+      setContacts(contactsData);
+      setAccounts(accountsData);
     } catch (err: any) {
       alert(err.message);
     } finally {
@@ -47,22 +60,20 @@ export const ContactsSettings: React.FC<ContactsSettingsProps> = ({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) return;
+  const handleSync = async (accountId: number) => {
     try {
-      await api.createContact({
-        name: name.trim(),
-        email: email.trim() || undefined,
-        image_url: imageUrl.trim() || undefined,
-      });
-      setName('');
-      setEmail('');
-      setImageUrl('');
+      setSyncingId(accountId);
+      setSyncMessage(null);
+      const result = await api.syncGoogleContacts(accountId);
+      setSyncMessage(
+        `${result.added} añadidos, ${result.updated} actualizados (${result.total} en Google).`
+      );
       await load();
       onChanged();
     } catch (err: any) {
       alert(err.message);
+    } finally {
+      setSyncingId(null);
     }
   };
 
@@ -76,34 +87,12 @@ export const ContactsSettings: React.FC<ContactsSettingsProps> = ({
     }
   };
 
-  const beginEdit = (c: Contact) => {
-    setEditingId(c.id);
-    setEditingDraft({ ...c });
-  };
-
-  const cancelEdit = () => {
-    setEditingId(null);
-    setEditingDraft(null);
-  };
-
-  const commitEdit = async () => {
-    if (!editingDraft) return;
-    try {
-      await api.updateContact(editingDraft.id, {
-        name: editingDraft.name,
-        email: editingDraft.email || undefined,
-        image_url: editingDraft.image_url || undefined,
-      });
-      cancelEdit();
-      await load();
-      onChanged();
-    } catch (err: any) {
-      alert(err.message);
-    }
-  };
-
   const handleDelete = async (c: Contact) => {
-    if (!confirm(`¿Borrar "${c.name}"? Las tareas que le hacen referencia se mantienen, solo se desvincula.`)) return;
+    const isGoogle = c.source === 'google';
+    const msg = isGoogle
+      ? `¿Quitar a "${c.name}" del listado local? Volverá a aparecer la próxima vez que sincronices con Google.`
+      : `¿Borrar "${c.name}"?`;
+    if (!confirm(msg)) return;
     try {
       await api.deleteContact(c.id);
       await load();
@@ -128,37 +117,41 @@ export const ContactsSettings: React.FC<ContactsSettingsProps> = ({
         </div>
 
         <section style={styles.section}>
-          <h3 style={styles.sectionTitle}>Nuevo contacto</h3>
-          <form onSubmit={handleCreate} style={styles.createForm}>
-            <input
-              type="text"
-              className="glass-input"
-              placeholder="Nombre *"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              style={styles.createField}
-            />
-            <input
-              type="email"
-              className="glass-input"
-              placeholder="email@ejemplo.com (opcional)"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              style={styles.createField}
-            />
-            <input
-              type="url"
-              className="glass-input"
-              placeholder="URL imagen (opcional)"
-              value={imageUrl}
-              onChange={(e) => setImageUrl(e.target.value)}
-              style={styles.createField}
-            />
-            <button type="submit" className="glass-button" style={styles.createBtn}>
-              Añadir
-            </button>
-          </form>
+          <h3 style={styles.sectionTitle}>Importar de Google</h3>
+          {accounts.length === 0 ? (
+            <p style={styles.muted}>
+              No tienes ninguna cuenta de Google conectada. Conéctala desde
+              ⚙️ Cuentas Google con el permiso de Contactos.
+            </p>
+          ) : (
+            <ul style={styles.accountList}>
+              {accounts.map((acc) => {
+                const hasScope = acc.scopes.includes(CONTACTS_SCOPE);
+                const busy = syncingId === acc.id;
+                return (
+                  <li key={acc.id} className="glass-card" style={styles.accountRow}>
+                    <div style={styles.accountInfo}>
+                      <div style={styles.accountEmail}>{acc.email}</div>
+                      {!hasScope && (
+                        <div style={styles.accountHint}>
+                          Sin permiso de Contactos — re-conecta marcando esa casilla.
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      className="glass-button"
+                      style={styles.syncBtn}
+                      disabled={!hasScope || busy}
+                      onClick={() => handleSync(acc.id)}
+                    >
+                      {busy ? 'Sincronizando...' : 'Sincronizar'}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+          {syncMessage && <div style={styles.syncMessage}>{syncMessage}</div>}
         </section>
 
         <section style={styles.section}>
@@ -168,114 +161,48 @@ export const ContactsSettings: React.FC<ContactsSettingsProps> = ({
           {loading ? (
             <p style={styles.muted}>Cargando...</p>
           ) : contacts.length === 0 ? (
-            <p style={styles.muted}>Aún no tienes contactos.</p>
+            <p style={styles.muted}>
+              Aún no tienes contactos. Sincroniza desde una cuenta Google.
+            </p>
           ) : (
             <ul style={styles.list}>
-              {contacts.map((c) => {
-                const editing = editingId === c.id && editingDraft;
-                return (
-                  <li key={c.id} className="glass-card" style={styles.row}>
-                    <Avatar name={c.name} imageUrl={c.image_url} size={36} />
-                    {editing ? (
-                      <div style={styles.editFields}>
-                        <input
-                          type="text"
-                          className="glass-input"
-                          style={styles.editInput}
-                          value={editingDraft!.name}
-                          onChange={(e) =>
-                            setEditingDraft({ ...editingDraft!, name: e.target.value })
-                          }
-                          autoFocus
-                        />
-                        <input
-                          type="email"
-                          className="glass-input"
-                          style={styles.editInput}
-                          placeholder="email"
-                          value={editingDraft!.email || ''}
-                          onChange={(e) =>
-                            setEditingDraft({ ...editingDraft!, email: e.target.value })
-                          }
-                        />
-                        <input
-                          type="url"
-                          className="glass-input"
-                          style={styles.editInput}
-                          placeholder="URL imagen"
-                          value={editingDraft!.image_url || ''}
-                          onChange={(e) =>
-                            setEditingDraft({
-                              ...editingDraft!,
-                              image_url: e.target.value,
-                            })
-                          }
-                        />
-                      </div>
-                    ) : (
-                      <div style={styles.contactBody}>
-                        <div style={styles.contactName}>{c.name}</div>
-                        {c.email && (
-                          <div style={styles.contactEmail}>{c.email}</div>
-                        )}
-                      </div>
-                    )}
-
-                    <div style={styles.actions}>
-                      <button
-                        type="button"
-                        style={{
-                          ...styles.actionBtn,
-                          color: c.is_favorite ? '#f59e0b' : 'var(--text-muted)',
-                        }}
-                        onClick={() => handleFavoriteToggle(c)}
-                        title={c.is_favorite ? 'Quitar de habituales' : 'Marcar habitual'}
-                      >
-                        {c.is_favorite ? '★' : '☆'}
-                      </button>
-                      {editing ? (
-                        <>
-                          <button
-                            type="button"
-                            style={styles.actionBtn}
-                            onClick={commitEdit}
-                            title="Guardar"
-                          >
-                            💾
-                          </button>
-                          <button
-                            type="button"
-                            style={styles.actionBtn}
-                            onClick={cancelEdit}
-                            title="Cancelar"
-                          >
-                            ✕
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            style={styles.actionBtn}
-                            onClick={() => beginEdit(c)}
-                            title="Editar"
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            type="button"
-                            style={styles.actionBtn}
-                            onClick={() => handleDelete(c)}
-                            title="Borrar"
-                          >
-                            🗑️
-                          </button>
-                        </>
+              {contacts.map((c) => (
+                <li key={c.id} className="glass-card" style={styles.row}>
+                  <Avatar name={c.name} imageUrl={c.image_url} size={36} />
+                  <div style={styles.contactBody}>
+                    <div style={styles.contactName}>
+                      {c.name}
+                      {c.source === 'google' && (
+                        <span style={styles.googleBadge} title="Sincronizado desde Google">
+                          G
+                        </span>
                       )}
                     </div>
-                  </li>
-                );
-              })}
+                    {c.email && <div style={styles.contactEmail}>{c.email}</div>}
+                  </div>
+                  <div style={styles.actions}>
+                    <button
+                      type="button"
+                      style={{
+                        ...styles.actionBtn,
+                        color: c.is_favorite ? '#f59e0b' : 'var(--text-muted)',
+                      }}
+                      onClick={() => handleFavoriteToggle(c)}
+                      title={c.is_favorite ? 'Quitar de habituales' : 'Marcar habitual'}
+                    >
+                      {c.is_favorite ? '★' : '☆'}
+                    </button>
+                    <button
+                      type="button"
+                      style={styles.actionBtn}
+                      onClick={() => handleDelete(c)}
+                      title="Borrar"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                </li>
+              ))}
             </ul>
           )}
         </section>
@@ -325,13 +252,47 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: '12px',
     fontWeight: 600,
   },
-  createForm: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr 1fr auto',
+  accountList: {
+    listStyle: 'none',
+    padding: 0,
+    margin: 0,
+    display: 'flex',
+    flexDirection: 'column',
     gap: '8px',
   },
-  createField: { padding: '8px 12px', fontSize: '12px' },
-  createBtn: { padding: '8px 14px', fontSize: '12px' },
+  accountRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '12px 16px',
+    gap: '12px',
+  },
+  accountInfo: { flex: 1, minWidth: 0 },
+  accountEmail: {
+    fontSize: '14px',
+    fontWeight: 500,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  accountHint: {
+    fontSize: '11px',
+    color: 'var(--accent-warning)',
+    marginTop: '4px',
+  },
+  syncBtn: {
+    padding: '8px 14px',
+    fontSize: '12px',
+  },
+  syncMessage: {
+    marginTop: '8px',
+    padding: '8px 12px',
+    background: 'rgba(16,185,129,0.10)',
+    border: '1px solid rgba(16,185,129,0.40)',
+    borderRadius: 'var(--border-radius-sm)',
+    fontSize: '12px',
+    color: '#a7f3d0',
+  },
   list: {
     listStyle: 'none',
     padding: 0,
@@ -353,18 +314,26 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  googleBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '16px',
+    height: '16px',
+    borderRadius: '50%',
+    background: 'linear-gradient(135deg, #4285F4, #DB4437 60%, #F4B400)',
+    color: '#ffffff',
+    fontSize: '9px',
+    fontWeight: 700,
   },
   contactEmail: {
     fontSize: '12px',
     color: 'var(--text-muted)',
   },
-  editFields: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '4px',
-    flex: 1,
-  },
-  editInput: { padding: '6px 10px', fontSize: '12px' },
   actions: { display: 'flex', gap: '4px' },
   actionBtn: {
     background: 'transparent',

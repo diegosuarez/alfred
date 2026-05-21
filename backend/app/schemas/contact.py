@@ -27,5 +27,14 @@ class ContactResponse(ContactBase):
 
     id: int
     user_id: int
+    source: str = "manual"
+    google_contact_id: Optional[str] = None
+    google_account_id: Optional[int] = None
     created_at: datetime
     updated_at: datetime
+
+
+class SyncContactsResponse(BaseModel):
+    added: int
+    updated: int
+    total: int

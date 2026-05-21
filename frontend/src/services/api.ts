@@ -130,6 +130,11 @@ export const api = {
       method: 'DELETE',
     }),
 
+  syncGoogleContacts: (accountId: number) =>
+    request(`/google-accounts/${accountId}/sync-contacts`, {
+      method: 'POST',
+    }),
+
   // Personal Access Tokens
   getPats: () => request('/pats'),
 
