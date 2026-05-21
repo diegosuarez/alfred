@@ -38,9 +38,7 @@ self.addEventListener('push', (event) => {
       reminder_id: data.reminder_id,
       remind_at: data.remind_at,
     },
-    // Stays visible until the user interacts with it — helps debug if
-    // the OS notification center is hiding short-lived alerts.
-    requireInteraction: true,
+    requireInteraction: false,
   };
   event.waitUntil(
     self.registration.showNotification(title, options).then(
