@@ -269,57 +269,63 @@ export const Sidebar: React.FC<SidebarProps> = ({
             const active = activeContextId === ctx.id;
             const accent = ctx.color || 'rgba(255,255,255,0.18)';
             return (
-              <button
-                key={ctx.id}
-                className="glass-button-secondary"
-                style={{
-                  ...styles.contextPill,
-                  borderColor: accent,
-                  ...(active
-                    ? {
-                        background: `${accent}30`,
-                        borderColor: accent,
-                        color: '#ffffff',
-                      }
-                    : {}),
-                }}
-                onClick={() => onSelectContext(ctx.id)}
-                title={ctx.name}
-              >
-                <span
+              <React.Fragment key={ctx.id}>
+                <button
+                  className="glass-button-secondary"
                   style={{
-                    ...styles.contextDot,
-                    backgroundColor: ctx.color || 'transparent',
+                    ...styles.contextPill,
                     borderColor: accent,
+                    ...(active
+                      ? {
+                          background: `${accent}30`,
+                          borderColor: accent,
+                          color: '#ffffff',
+                        }
+                      : {}),
                   }}
-                />
-                {ctx.name}
-              </button>
+                  onClick={() => onSelectContext(ctx.id)}
+                  title={ctx.name}
+                >
+                  <span
+                    style={{
+                      ...styles.contextDot,
+                      backgroundColor: ctx.color || 'transparent',
+                      borderColor: accent,
+                    }}
+                  />
+                  {ctx.name}
+                </button>
+                {active && (
+                  <button
+                    type="button"
+                    style={{
+                      ...styles.contextMenuTrigger,
+                      ...(contextMenuOpen ? styles.contextMenuTriggerOpen : {}),
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setContextMenuOpen((o) => !o);
+                    }}
+                    title={
+                      contextMenuOpen
+                        ? 'Ocultar opciones'
+                        : 'Opciones del contexto'
+                    }
+                  >
+                    ⋯
+                  </button>
+                )}
+              </React.Fragment>
             );
           })}
         </div>
 
-        {/* Hamburger trigger to expand the active context controls. */}
-        {activeContextId !== null && (() => {
+        {/* Expanded panel for the active context controls. */}
+        {activeContextId !== null && contextMenuOpen && (() => {
           const ctx = contexts.find((c) => c.id === activeContextId);
           if (!ctx) return null;
           const isEditing = editingContextId === ctx.id;
           return (
-            <>
-              <div style={styles.contextMenuBar}>
-                <button
-                  type="button"
-                  style={{
-                    ...styles.contextMenuTrigger,
-                    ...(contextMenuOpen ? styles.contextMenuTriggerOpen : {}),
-                  }}
-                  onClick={() => setContextMenuOpen((o) => !o)}
-                  title={contextMenuOpen ? 'Ocultar opciones' : 'Opciones del contexto'}
-                >
-                  ⋯
-                </button>
-              </div>
-              {contextMenuOpen && (
                 <div
                   style={styles.contextControls}
                   className="animate-fade-in"
@@ -379,8 +385,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </>
                   )}
                 </div>
-              )}
-            </>
           );
         })()}
       </div>
@@ -674,21 +678,18 @@ const styles: Record<string, React.CSSProperties> = {
     border: '2px solid #ffffff',
     boxShadow: '0 0 0 2px rgba(0,0,0,0.4)',
   },
-  contextMenuBar: {
-    display: 'flex',
-    justifyContent: 'flex-end',
-    marginTop: '6px',
-  },
   contextMenuTrigger: {
     background: 'transparent',
     border: '1px solid var(--glass-border)',
     color: 'var(--text-secondary)',
     cursor: 'pointer',
-    fontSize: '14px',
-    padding: '2px 10px',
+    fontSize: '13px',
+    padding: '2px 9px',
     borderRadius: '999px',
     lineHeight: 1,
     letterSpacing: '2px',
+    height: '26px',
+    alignSelf: 'center',
   },
   contextMenuTriggerOpen: {
     background: 'rgba(255,255,255,0.06)',
