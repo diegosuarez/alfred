@@ -14,7 +14,9 @@ class TaskBase(BaseModel):
     position: Optional[int] = 0
 
 class TaskCreate(TaskBase):
-    column_id: int
+    # column_id is taken from the URL path; this field is kept for legacy
+    # clients that still send it but the handler ignores it.
+    column_id: Optional[int] = None
     tag_ids: List[int] = []
 
 class TaskUpdate(BaseModel):

@@ -24,6 +24,11 @@ data/
 # Docker
 .docker/
 
+# TLS / Tailscale certs (auto-provisioned, never commit)
+*.crt
+*.key
+*.pem
+
 # CodeGraph
 .codegraph/
 

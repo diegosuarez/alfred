@@ -24,6 +24,8 @@ interface SidebarProps {
   currentView: 'board' | 'stats';
   onChangeView: (view: 'board' | 'stats') => void;
   onCreateBoard: (name: string) => Promise<void>;
+  onRenameBoard: (id: number, name: string) => Promise<void>;
+  onDeleteBoard: (id: number) => Promise<void>;
   onOpenSettings: () => void;
   onOpenTokens: () => void;
   onLogout: () => void;
@@ -43,6 +45,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentView,
   onChangeView,
   onCreateBoard,
+  onRenameBoard,
+  onDeleteBoard,
   onOpenSettings,
   onOpenTokens,
   onLogout,
@@ -54,6 +58,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [showAddForm, setShowAddForm] = useState(false);
   const [newContextName, setNewContextName] = useState('');
   const [showAddContext, setShowAddContext] = useState(false);
+  const [editingBoardId, setEditingBoardId] = useState<number | null>(null);
+  const [editingBoardName, setEditingBoardName] = useState('');
 
   const handleCreateBoard = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,6 +76,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
     await onCreateContext(newContextName);
     setNewContextName('');
     setShowAddContext(false);
+  };
+
+  const startEditBoard = (id: number, current: string) => {
+    setEditingBoardId(id);
+    setEditingBoardName(current);
+  };
+
+  const cancelEditBoard = () => {
+    setEditingBoardId(null);
+    setEditingBoardName('');
+  };
+
+  const commitEditBoard = async () => {
+    if (editingBoardId === null) return;
+    const name = editingBoardName.trim();
+    if (!name) {
+      cancelEditBoard();
+      return;
+    }
+    await onRenameBoard(editingBoardId, name);
+    cancelEditBoard();
+  };
+
+  const handleDeleteBoardClick = async (id: number, name: string) => {
+    if (!confirm(`¿Borrar el tablero "${name}"? Se perderán sus columnas y tareas.`)) return;
+    await onDeleteBoard(id);
   };
 
   return (
@@ -208,23 +240,74 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div style={styles.boardList}>
           {boards.map((board) => {
             const isActive = currentView === 'board' && activeBoardId === board.id;
+            const isEditing = editingBoardId === board.id;
             return (
-              <button
+              <div
                 key={board.id}
                 className="glass-button-secondary"
                 style={{
                   ...styles.boardBtn,
                   ...(isActive ? styles.activeBoardBtn : {}),
+                  cursor: isEditing ? 'default' : 'pointer',
                 }}
                 onClick={() => {
+                  if (isEditing) return;
                   onSelectBoard(board.id);
                   onChangeView('board');
                   onCloseMobileSidebar?.();
                 }}
               >
                 <span style={styles.boardIcon}>📁</span>
-                <span style={styles.boardName}>{board.name}</span>
-              </button>
+                {isEditing ? (
+                  <input
+                    type="text"
+                    className="glass-input"
+                    style={styles.boardRenameInput}
+                    value={editingBoardName}
+                    onChange={(e) => setEditingBoardName(e.target.value)}
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        commitEditBoard();
+                      } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        cancelEditBoard();
+                      }
+                    }}
+                    onBlur={commitEditBoard}
+                    autoFocus
+                  />
+                ) : (
+                  <>
+                    <span style={styles.boardName}>{board.name}</span>
+                    <span style={styles.boardActions}>
+                      <button
+                        type="button"
+                        style={styles.boardActionBtn}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          startEditBoard(board.id, board.name);
+                        }}
+                        title="Renombrar"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        type="button"
+                        style={styles.boardActionBtn}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteBoardClick(board.id, board.name);
+                        }}
+                        title="Borrar"
+                      >
+                        🗑️
+                      </button>
+                    </span>
+                  </>
+                )}
+              </div>
             );
           })}
           {boards.length === 0 && (
@@ -441,6 +524,28 @@ const styles: Record<string, React.CSSProperties> = {
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
     flex: 1,
+  },
+  boardActions: {
+    display: 'flex',
+    gap: '4px',
+    marginLeft: '8px',
+    opacity: 0.6,
+  },
+  boardActionBtn: {
+    background: 'transparent',
+    border: 'none',
+    color: 'var(--text-secondary)',
+    fontSize: '12px',
+    cursor: 'pointer',
+    padding: '2px 4px',
+    borderRadius: '4px',
+    lineHeight: 1,
+  },
+  boardRenameInput: {
+    flex: 1,
+    padding: '4px 8px',
+    fontSize: '13px',
+    background: 'rgba(255,255,255,0.06)',
   },
   emptyText: {
     fontSize: '13px',

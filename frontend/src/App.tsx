@@ -179,6 +179,28 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleRenameBoard = async (id: number, name: string) => {
+    try {
+      const updated = await api.updateBoard(id, name);
+      setBoards(boards.map((b) => (b.id === id ? { ...b, name: updated.name } : b)));
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const handleDeleteBoard = async (id: number) => {
+    try {
+      await api.deleteBoard(id);
+      const remaining = boards.filter((b) => b.id !== id);
+      setBoards(remaining);
+      if (activeBoardId === id) {
+        setActiveBoardId(remaining.length > 0 ? remaining[0].id : null);
+      }
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
   const handleCreateContext = async (name: string) => {
     try {
       const created = await api.createContext(name);
@@ -272,6 +294,8 @@ export const App: React.FC = () => {
         currentView={currentView}
         onChangeView={(view) => setCurrentView(view)}
         onCreateBoard={handleCreateBoard}
+        onRenameBoard={handleRenameBoard}
+        onDeleteBoard={handleDeleteBoard}
         onOpenSettings={() => setShowSettings(true)}
         onOpenTokens={() => setShowTokens(true)}
         onLogout={handleLogout}
