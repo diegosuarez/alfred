@@ -215,6 +215,16 @@ async def _dispatch_due_reminders() -> None:
                 )
             )
             subs = subs_result.scalars().all()
+            if not subs:
+                # Don't mark sent_at — the user may grant push later and
+                # we'd rather deliver late than swallow the reminder.
+                log.info(
+                    "Reminders due for user %s but no push subscriptions yet; "
+                    "skipping (%d pending)",
+                    user_id,
+                    len(items),
+                )
+                continue
             for rem, task in items:
                 payload = {
                     "title": task.title,
@@ -225,15 +235,25 @@ async def _dispatch_due_reminders() -> None:
                     "tag": f"alfred-reminder-{rem.id}",
                 }
                 dead_subs: list[PushSubscription] = []
+                delivered = False
                 for sub in subs:
                     ok, status_code = push_helper.send_push(
                         sub.endpoint, sub.p256dh, sub.auth, payload
                     )
-                    if not ok and status_code in (404, 410):
+                    if ok:
+                        delivered = True
+                    elif status_code in (404, 410):
                         dead_subs.append(sub)
                 for sub in dead_subs:
                     await session.delete(sub)
-                rem.sent_at = now_naive
+                if delivered:
+                    rem.sent_at = now_naive
+                else:
+                    log.warning(
+                        "Reminder %s for user %s wasn't delivered to any sub",
+                        rem.id,
+                        user_id,
+                    )
         await session.commit()
 
 

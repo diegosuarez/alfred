@@ -3,6 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
 from app.api.deps import get_current_user
+from app.core import push as push_helper
 from app.core.push import get_vapid_keys
 from app.database import get_db
 from app.models.push_subscription import PushSubscription
@@ -55,6 +56,46 @@ async def subscribe(
     await db.commit()
     await db.refresh(sub)
     return PushSubscribeResponse(id=sub.id)
+
+
+@router.post("/test")
+async def test_push(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Send a one-off test notification to every push subscription the
+    caller has registered. Useful for verifying the SW + VAPID chain
+    without having to wait for a real reminder. Returns per-subscription
+    delivery status so the SPA can show the user what happened."""
+    result = await db.execute(
+        select(PushSubscription).filter(PushSubscription.user_id == current_user.id)
+    )
+    subs = result.scalars().all()
+    if not subs:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                "No push subscriptions found for this user. "
+                "Open the app and accept the notification prompt first."
+            ),
+        )
+
+    outcomes = []
+    for sub in subs:
+        ok, status_code = push_helper.send_push(
+            sub.endpoint,
+            sub.p256dh,
+            sub.auth,
+            {
+                "title": "Alfred — prueba",
+                "body": "Si ves esto, las notificaciones funcionan ✅",
+                "tag": "alfred-test",
+            },
+        )
+        outcomes.append(
+            {"endpoint": sub.endpoint[:60] + "…", "ok": ok, "status_code": status_code}
+        )
+    return {"sent": outcomes}
 
 
 @router.post("/unsubscribe", status_code=status.HTTP_204_NO_CONTENT)
