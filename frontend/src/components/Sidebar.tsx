@@ -119,7 +119,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* App Header */}
       <div style={styles.header}>
-        <div style={styles.logoBadge}>A</div>
+        <img src="/logo.png" alt="Alfred" style={styles.logoBadge} />
         <h2 style={styles.logoTitle}>Alfred</h2>
       </div>
 
@@ -378,17 +378,11 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: '32px',
   },
   logoBadge: {
-    width: '36px',
-    height: '36px',
+    width: '40px',
+    height: '40px',
     borderRadius: '10px',
-    background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontWeight: 700,
-    fontSize: '18px',
-    color: '#ffffff',
-    boxShadow: '0 4px 12px rgba(99, 102, 241, 0.4)',
+    objectFit: 'cover',
+    boxShadow: '0 4px 12px rgba(0, 0, 0, 0.35)',
   },
   logoTitle: {
     fontSize: '20px',

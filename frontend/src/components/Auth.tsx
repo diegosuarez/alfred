@@ -36,6 +36,7 @@ export const Auth: React.FC<AuthProps> = ({ onLoginSuccess }) => {
   return (
     <div style={styles.container}>
       <div style={styles.logoArea}>
+        <img src="/logo.png" alt="Alfred" style={styles.logoImage} />
         <h1 style={styles.title}>Alfred</h1>
         <p style={styles.subtitle}>Tu mayordomo de productividad personal</p>
       </div>
@@ -111,6 +112,16 @@ const styles: Record<string, React.CSSProperties> = {
   logoArea: {
     textAlign: 'center',
     marginBottom: '32px',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '12px',
+  },
+  logoImage: {
+    width: '96px',
+    height: '96px',
+    borderRadius: '22px',
+    boxShadow: '0 10px 30px rgba(0, 0, 0, 0.4)',
   },
   title: {
     fontSize: '3rem',
