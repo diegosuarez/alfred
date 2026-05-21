@@ -1,4 +1,13 @@
-export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:30000';
+// When VITE_API_URL is unset we derive the backend URL from the current
+// page origin: same protocol, same hostname, port 30000. That way the
+// same build works whether you load the SPA from http://localhost:30001,
+// http://melee:30001 (Tailscale MagicDNS), or any LAN IP.
+const _defaultApiUrl =
+  typeof window !== 'undefined'
+    ? `${window.location.protocol}//${window.location.hostname}:30000`
+    : 'http://localhost:30000';
+
+export const API_URL = import.meta.env.VITE_API_URL || _defaultApiUrl;
 
 let token = localStorage.getItem('alfred_token') || '';
 

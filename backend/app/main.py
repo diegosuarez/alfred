@@ -73,12 +73,18 @@ import os
 
 # CORS middleware. Allow-credentials + wildcard origins is invalid per
 # the CORS spec, so we list dev origins explicitly. Extend via env.
+#   CORS_ORIGINS       comma-separated literal origins
+#   CORS_ORIGIN_REGEX  optional regex matched against the Origin header
+#                      (useful for Tailscale / LAN where the hostname
+#                       changes per device).
 _default_origins = "http://localhost:5173,http://localhost:30001,http://127.0.0.1:5173,http://127.0.0.1:30001"
 _origins = [o.strip() for o in os.getenv("CORS_ORIGINS", _default_origins).split(",") if o.strip()]
+_origin_regex = os.getenv("CORS_ORIGIN_REGEX") or None
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,
+    allow_origin_regex=_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
