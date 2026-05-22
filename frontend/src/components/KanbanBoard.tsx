@@ -2008,8 +2008,13 @@ const styles: Record<string, React.CSSProperties> = {
     paddingBottom: '16px',
   },
   column: {
-    width: '320px',
+    // Stretchy column: grows up to 2x the legacy 320px when the board
+    // has few lists and there's spare horizontal room; never shrinks
+    // below 320px so wide boards scroll horizontally instead of
+    // crushing their cards.
+    flex: '1 0 320px',
     minWidth: '320px',
+    maxWidth: '640px',
     maxHeight: '100%',
     display: 'flex',
     flexDirection: 'column',
