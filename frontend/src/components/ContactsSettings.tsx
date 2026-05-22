@@ -35,6 +35,8 @@ export const ContactsSettings: React.FC<ContactsSettingsProps> = ({
   const [loading, setLoading] = useState(true);
   const [syncingId, setSyncingId] = useState<number | null>(null);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
   useEscapeKey(onClose);
 
   const load = async () => {
@@ -160,15 +162,56 @@ export const ContactsSettings: React.FC<ContactsSettingsProps> = ({
           <h3 style={styles.sectionTitle}>
             Tus contactos ({contacts.length})
           </h3>
+          {!loading && contacts.length > 0 && (
+            <div style={styles.searchRow}>
+              <input
+                type="text"
+                className="glass-input"
+                style={styles.searchInput}
+                placeholder="Buscar por nombre o email…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                autoFocus
+              />
+              <button
+                type="button"
+                style={{
+                  ...styles.favFilter,
+                  ...(favoritesOnly ? styles.favFilterActive : {}),
+                }}
+                onClick={() => setFavoritesOnly((v) => !v)}
+                title="Sólo habituales (favoritos)"
+              >
+                {favoritesOnly ? '★ Sólo habituales' : '☆ Todos'}
+              </button>
+            </div>
+          )}
           {loading ? (
             <p style={styles.muted}>Cargando...</p>
           ) : contacts.length === 0 ? (
             <p style={styles.muted}>
               Aún no tienes contactos. Sincroniza desde una cuenta Google.
             </p>
-          ) : (
+          ) : (() => {
+            const q = query.trim().toLowerCase();
+            const visible = contacts.filter((c) => {
+              if (favoritesOnly && !c.is_favorite) return false;
+              if (!q) return true;
+              return (
+                c.name.toLowerCase().includes(q) ||
+                (c.email ?? '').toLowerCase().includes(q)
+              );
+            });
+            if (visible.length === 0) {
+              return (
+                <p style={styles.muted}>
+                  Sin coincidencias para "{query}".
+                </p>
+              );
+            }
+            return (
             <ul style={styles.list}>
-              {contacts.map((c) => (
+              {visible.map((c) => (
                 <li key={c.id} className="glass-card" style={styles.row}>
                   <Avatar name={c.name} imageUrl={c.image_url} size={36} />
                   <div style={styles.contactBody}>
@@ -206,7 +249,8 @@ export const ContactsSettings: React.FC<ContactsSettingsProps> = ({
                 </li>
               ))}
             </ul>
-          )}
+            );
+          })()}
         </section>
       </div>
     </div>
@@ -246,6 +290,31 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: 'pointer',
   },
   section: { marginBottom: '24px' },
+  searchRow: {
+    display: 'flex',
+    gap: '8px',
+    marginBottom: '10px',
+  },
+  searchInput: {
+    flex: 1,
+    padding: '8px 12px',
+    fontSize: '13px',
+  },
+  favFilter: {
+    background: 'rgba(255, 255, 255, 0.04)',
+    border: '1px solid rgba(255, 255, 255, 0.10)',
+    color: 'var(--text-secondary)',
+    borderRadius: '6px',
+    padding: '6px 12px',
+    fontSize: '12px',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  favFilterActive: {
+    background: 'rgba(245, 158, 11, 0.18)',
+    borderColor: 'rgba(245, 158, 11, 0.45)',
+    color: '#fbbf24',
+  },
   sectionTitle: {
     fontSize: '13px',
     textTransform: 'uppercase',
