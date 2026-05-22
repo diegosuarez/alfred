@@ -629,6 +629,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
   mainContent: {
     flex: 1,
+    // Without min-width: 0 a flex item defaults to min-width: auto and
+    // will grow with its content, bypassing overflow:hidden. The kanban
+    // workspace needs this to clip and scroll horizontally when there
+    // are many columns.
+    minWidth: 0,
     height: '100vh',
     overflow: 'hidden',
     display: 'flex',

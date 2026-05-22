@@ -1972,6 +1972,9 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
 const styles: Record<string, React.CSSProperties> = {
   container: {
     flex: 1,
+    // See App.mainContent: prevents the container from auto-stretching to
+    // its column-set's intrinsic width and breaking horizontal scroll.
+    minWidth: 0,
     padding: '40px',
     height: '100vh',
     display: 'flex',
@@ -2001,6 +2004,9 @@ const styles: Record<string, React.CSSProperties> = {
   },
   workspace: {
     flex: 1,
+    // Same flex-quirk fix as above: without min-width: 0 the workspace
+    // grows to fit all columns and overflowX: auto never kicks in.
+    minWidth: 0,
     display: 'flex',
     gap: '24px',
     overflowX: 'auto',
