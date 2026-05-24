@@ -1,6 +1,7 @@
 package es.tcdn.diego.alfred.auth
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -15,6 +16,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +50,35 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var status by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+
+    val store = remember { BiometricStore(ctx) }
+    val activity = ctx as? androidx.fragment.app.FragmentActivity
+    val bioAvailable = activity != null && store.isHardwareAvailable()
+    val canUnlock = bioAvailable && store.hasStored()
+
+    // Auto-prompt at first composition when a stored token exists, so the
+    // user lands on the biometric sheet without an extra tap. The prompt
+    // is cancellable — if cancelled, the manual login forms below show.
+    LaunchedEffect(Unit) {
+        if (canUnlock) {
+            val unlocked = store.unlock(activity!!)
+            if (unlocked != null) {
+                settings.setApiUrl(apiUrl)
+                settings.setToken(unlocked)
+                onSignedIn()
+            }
+        }
+    }
+
+    // Helper: try to persist the JWT behind the biometric prompt and
+    // then bounce into the app. Cancelling the prompt is fine — we
+    // still navigate, just without the convenience.
+    suspend fun finishLogin(token: String) {
+        if (bioAvailable && !store.hasStored() && activity != null) {
+            store.storeToken(activity, token)
+        }
+        onSignedIn()
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -84,7 +115,7 @@ fun LoginScreen(
                     try {
                         settings.setApiUrl(apiUrl)
                         settings.setToken(pat.trim())
-                        onSignedIn()
+                        finishLogin(pat.trim())
                     } catch (e: Exception) {
                         status = e.message
                     } finally {
@@ -95,6 +126,22 @@ fun LoginScreen(
             enabled = !busy && pat.isNotBlank() && apiUrl.isNotBlank(),
             modifier = Modifier.fillMaxWidth(),
         ) { Text("Entrar con PAT") }
+
+        if (canUnlock) {
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = {
+                    scope.launch {
+                        if (activity == null) return@launch
+                        val unlocked = store.unlock(activity) ?: return@launch
+                        settings.setApiUrl(apiUrl)
+                        settings.setToken(unlocked)
+                        onSignedIn()
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("👆 Desbloquear con huella") }
+        }
 
         Spacer(Modifier.height(16.dp))
         HorizontalDivider()
@@ -128,7 +175,7 @@ fun LoginScreen(
                         val api = ApiClient.create(apiUrl, token = null)
                         val token = api.loginPassword(email.trim(), password)
                         settings.setToken(token.accessToken)
-                        onSignedIn()
+                        finishLogin(token.accessToken)
                     } catch (e: Exception) {
                         status = e.message
                     } finally {
@@ -153,7 +200,7 @@ fun LoginScreen(
                             val api = ApiClient.create(apiUrl, token = null)
                             val token = api.loginGoogle(GoogleNativeRequest(idToken))
                             settings.setToken(token.accessToken)
-                            onSignedIn()
+                            finishLogin(token.accessToken)
                         } catch (e: Exception) {
                             status = e.message
                         } finally {

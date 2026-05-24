@@ -2,10 +2,10 @@ package es.tcdn.diego.alfred
 
 import android.os.Build
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.fragment.app.FragmentActivity
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
@@ -18,7 +18,10 @@ import es.tcdn.diego.alfred.ui.nav.AlfredNavHost
 import es.tcdn.diego.alfred.ui.theme.AlfredTheme
 import kotlinx.coroutines.launch
 
-class MainActivity : ComponentActivity() {
+// FragmentActivity (vs the simpler ComponentActivity) is required by
+// androidx.biometric so the biometric prompt can be hosted in the
+// activity's FragmentManager.
+class MainActivity : FragmentActivity() {
 
     // Request POST_NOTIFICATIONS on Android 13+. Result is ignored —
     // PushSubscriber still registers regardless and FCM will deliver

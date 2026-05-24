@@ -127,6 +127,11 @@ dependencies {
     // Markdown renderer for task descriptions.
     implementation("com.github.jeziellago:compose-markdown:0.5.7")
 
+    // Biometric unlock — uses Android Keystore + BiometricPrompt to
+    // decrypt the JWT on the next app open without re-typing a token.
+    implementation("androidx.biometric:biometric:1.2.0-alpha05")
+    implementation("androidx.fragment:fragment-ktx:1.8.5")
+
     // Google Sign-In (Credential Manager flow).
     implementation("androidx.credentials:credentials:1.3.0")
     implementation("androidx.credentials:credentials-play-services-auth:1.3.0")

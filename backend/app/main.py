@@ -11,6 +11,7 @@ from sqlalchemy.future import select
 
 from app.api.attachments import router as attachments_router
 from app.api.auth import router as auth_router
+from app.api.passkeys import router as passkeys_router
 from app.api.boards import DEFAULT_CONTEXT_NAME, router as boards_router
 from app.api.columns import router as columns_router
 from app.api.contacts import router as contacts_router
@@ -25,6 +26,7 @@ from app.api.tasks import router as tasks_router
 from app.core.time import utcnow
 from app.database import AsyncSessionLocal, Base, engine
 from app.models.attachment import Attachment  # noqa: F401  (registers mapper)
+from app.models.passkey import Passkey  # noqa: F401  (registers mapper)
 from app.models.board import Board
 from app.models.contact import Contact
 from app.models.context import Context
@@ -515,6 +517,7 @@ app.include_router(pats_router, prefix="/api")
 app.include_router(reminders_router, prefix="/api")
 app.include_router(push_router, prefix="/api")
 app.include_router(focus_router, prefix="/api")
+app.include_router(passkeys_router, prefix="/api")
 
 
 @app.get("/")

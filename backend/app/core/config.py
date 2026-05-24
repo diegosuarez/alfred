@@ -23,6 +23,15 @@ class Settings:
     # ID tokens issued for them can be exchanged for our own JWT.
     GOOGLE_NATIVE_AUDIENCES: str = os.getenv("GOOGLE_NATIVE_AUDIENCES", "")
 
+    # WebAuthn / passkeys. The RP id must match the eTLD+1 of the domain
+    # that serves the SPA (e.g. "alfred.diego.tcdn.es" for production).
+    # The origin is the fully-qualified URL the browser sees in the URL
+    # bar and is validated during attestation/assertion. Falls back to
+    # APP_URL when not explicitly set.
+    WEBAUTHN_RP_ID: str = os.getenv("WEBAUTHN_RP_ID", "")
+    WEBAUTHN_RP_NAME: str = os.getenv("WEBAUTHN_RP_NAME", "Alfred")
+    WEBAUTHN_ORIGIN: str = os.getenv("WEBAUTHN_ORIGIN", "")
+
     # Public base URLs.
     # APP_URL is where the backend can be reached from a browser (used to
     # build the redirect_uri sent to Google).

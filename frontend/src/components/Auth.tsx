@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { api } from '../services/api';
+import { api, setToken } from '../services/api';
+import { signInWithPasskey, supportsWebAuthn } from '../services/webauthn';
 
 interface AuthProps {
   onLoginSuccess: () => void;
@@ -88,6 +89,35 @@ export const Auth: React.FC<AuthProps> = ({ onLoginSuccess }) => {
           <span style={styles.googleIcon}>G</span>
           <span>Entrar con Google</span>
         </a>
+
+        {supportsWebAuthn() && (
+          <button
+            type="button"
+            className="glass-button-secondary"
+            style={{ ...styles.googleBtn, marginTop: '10px' }}
+            disabled={loading}
+            onClick={async () => {
+              setError('');
+              setLoading(true);
+              try {
+                const { access_token } = await signInWithPasskey();
+                setToken(access_token);
+                onLoginSuccess();
+              } catch (err: any) {
+                setError(
+                  err.name === 'NotAllowedError'
+                    ? 'Has cancelado la autenticación.'
+                    : err.message || 'No se pudo entrar con passkey.',
+                );
+              } finally {
+                setLoading(false);
+              }
+            }}
+          >
+            <span style={styles.googleIcon}>🔐</span>
+            <span>Entrar con passkey</span>
+          </button>
+        )}
 
         <div style={styles.switchText}>
           {isRegister ? '¿Ya tienes una cuenta?' : '¿No tienes una cuenta?'}{' '}

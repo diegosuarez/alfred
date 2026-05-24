@@ -26,8 +26,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import es.tcdn.diego.alfred.auth.BiometricStore
 import es.tcdn.diego.alfred.data.AlfredConfig
 import es.tcdn.diego.alfred.data.SettingsRepository
 import kotlinx.coroutines.launch
@@ -89,9 +91,40 @@ fun SettingsScreen(
             HorizontalDivider()
             Spacer(Modifier.height(8.dp))
 
+            val androidCtx = LocalContext.current
+            val biometricStore = remember { BiometricStore(androidCtx) }
+            var biometricEnabled by remember { mutableStateOf(biometricStore.hasStored()) }
+            if (biometricStore.isHardwareAvailable()) {
+                Text(
+                    "Desbloqueo con huella",
+                    style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    if (biometricEnabled)
+                        "Activo. El JWT cifrado se desbloquea con tu huella al abrir la app."
+                    else
+                        "Inactivo. Cuando vuelvas a iniciar sesión te ofreceré activarlo.",
+                    style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (biometricEnabled) {
+                    OutlinedButton(
+                        onClick = {
+                            biometricStore.clear()
+                            biometricEnabled = false
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text("Olvidar credenciales biométricas") }
+                }
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider()
+                Spacer(Modifier.height(8.dp))
+            }
+
             OutlinedButton(
                 onClick = {
                     scope.launch {
+                        biometricStore.clear()
                         settings.setToken(null)
                         settings.setDefaultBoardId(null)
                         settings.setDefaultContextId(null)

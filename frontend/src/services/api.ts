@@ -372,6 +372,35 @@ export const api = {
   deleteAttachment: (attachmentId: number) =>
     request(`/attachments/${attachmentId}`, { method: 'DELETE' }),
 
+  // Passkeys (WebAuthn). Begin returns PublicKeyCredentialCreationOptions
+  // / PublicKeyCredentialRequestOptions encoded by the python-webauthn
+  // lib (base64url strings for challenge / user.id / credential.id).
+  passkeyRegisterBegin: (label?: string) =>
+    request('/passkeys/register/begin', {
+      method: 'POST',
+      body: JSON.stringify({ label }),
+    }),
+
+  passkeyRegisterFinish: (label: string | undefined, credential: any) =>
+    request('/passkeys/register/finish', {
+      method: 'POST',
+      body: JSON.stringify({ label, credential }),
+    }),
+
+  passkeyLoginBegin: () =>
+    request('/passkeys/login/begin', { method: 'POST', body: JSON.stringify({}) }),
+
+  passkeyLoginFinish: (state: string, credential: any) =>
+    request('/passkeys/login/finish', {
+      method: 'POST',
+      body: JSON.stringify({ state, credential }),
+    }),
+
+  listPasskeys: () => request('/passkeys'),
+
+  deletePasskey: (id: number) =>
+    request(`/passkeys/${id}`, { method: 'DELETE' }),
+
   // Focus (Pomodoro)
   createFocusSession: (taskId: number, duration: number) => 
     request('/focus', {

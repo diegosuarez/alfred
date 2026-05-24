@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../services/api';
 import { useEscapeKey } from '../hooks/useEscapeKey';
+import { registerPasskey, supportsWebAuthn } from '../services/webauthn';
 
 interface PAT {
   id: number;
@@ -27,6 +28,48 @@ export const TokensSettings: React.FC<TokensSettingsProps> = ({ onClose }) => {
   const [newName, setNewName] = useState('');
   const [justCreated, setJustCreated] = useState<NewlyMintedPAT | null>(null);
   const [copied, setCopied] = useState(false);
+  const [passkeys, setPasskeys] = useState<
+    { id: number; label: string | null; created_at?: string; last_used_at?: string | null }[]
+  >([]);
+  const [newPasskeyLabel, setNewPasskeyLabel] = useState('');
+  const [passkeyBusy, setPasskeyBusy] = useState(false);
+  const [passkeyError, setPasskeyError] = useState<string | null>(null);
+
+  const loadPasskeys = async () => {
+    try {
+      setPasskeys(await api.listPasskeys());
+    } catch (err: any) {
+      setPasskeyError(err.message);
+    }
+  };
+
+  const handleCreatePasskey = async () => {
+    setPasskeyError(null);
+    setPasskeyBusy(true);
+    try {
+      await registerPasskey(newPasskeyLabel || undefined);
+      setNewPasskeyLabel('');
+      await loadPasskeys();
+    } catch (err: any) {
+      setPasskeyError(
+        err.name === 'NotAllowedError'
+          ? 'Has cancelado el registro.'
+          : err.message || 'No se pudo crear la passkey.',
+      );
+    } finally {
+      setPasskeyBusy(false);
+    }
+  };
+
+  const handleDeletePasskey = async (id: number) => {
+    if (!confirm('¿Borrar esta passkey?')) return;
+    try {
+      await api.deletePasskey(id);
+      await loadPasskeys();
+    } catch (err: any) {
+      setPasskeyError(err.message);
+    }
+  };
 
   const load = async () => {
     try {
@@ -42,6 +85,7 @@ export const TokensSettings: React.FC<TokensSettingsProps> = ({ onClose }) => {
 
   useEffect(() => {
     load();
+    loadPasskeys();
   }, []);
   useEscapeKey(onClose);
 
@@ -215,6 +259,59 @@ export const TokensSettings: React.FC<TokensSettingsProps> = ({ onClose }) => {
             </ul>
           )}
         </section>
+
+        {supportsWebAuthn() && (
+          <section style={styles.section}>
+            <h3 style={styles.sectionTitle}>Passkeys</h3>
+            <p style={styles.muted}>
+              Inicia sesión sin contraseña usando la huella, FaceID o un
+              authenticator hardware. Cada passkey queda vinculada a este
+              dispositivo / contraseña del navegador.
+            </p>
+            {passkeyError && <div style={styles.error}>{passkeyError}</div>}
+            <div style={styles.createForm}>
+              <input
+                type="text"
+                className="glass-input"
+                style={styles.createInput}
+                placeholder="Nombre (ej. MacBook Touch ID)"
+                value={newPasskeyLabel}
+                onChange={(e) => setNewPasskeyLabel(e.target.value)}
+              />
+              <button
+                type="button"
+                className="glass-button"
+                onClick={handleCreatePasskey}
+                disabled={passkeyBusy}
+              >
+                {passkeyBusy ? 'Registrando…' : 'Añadir passkey'}
+              </button>
+            </div>
+            {passkeys.length === 0 ? (
+              <p style={styles.muted}>Aún no has registrado ninguna passkey.</p>
+            ) : (
+              <ul style={styles.list}>
+                {passkeys.map((p) => (
+                  <li key={p.id} className="glass-card" style={styles.row}>
+                    <div style={styles.rowMain}>
+                      <div style={styles.rowName}>{p.label || `Passkey #${p.id}`}</div>
+                      <div style={styles.rowDates}>
+                        Creada: {fmt(p.created_at)} · Último uso: {fmt(p.last_used_at)}
+                      </div>
+                    </div>
+                    <button
+                      className="glass-button glass-button-danger"
+                      style={styles.revokeBtn}
+                      onClick={() => handleDeletePasskey(p.id)}
+                    >
+                      Borrar
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        )}
       </div>
     </div>
   );
