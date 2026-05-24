@@ -10,7 +10,7 @@ import { TokensSettings } from './components/TokensSettings';
 import { ContactsSettings } from './components/ContactsSettings';
 import { ReminderAlerts, type FiredReminder } from './components/ReminderAlerts';
 import { ensurePushSubscription } from './services/push';
-import { api, getToken, setToken } from './services/api';
+import { api, getToken, setToken, UNAUTHORIZED_EVENT } from './services/api';
 
 interface Context {
   id: number;
@@ -330,6 +330,18 @@ export const App: React.FC = () => {
     setCurrentView('board');
     setActiveTask(null);
   };
+
+  // Catches mid-session 401s emitted by the API client. The token has
+  // already been cleared at the request layer; we just reset the UI
+  // state so the LoginScreen reappears. The "Sesión caducada" message
+  // travels up via the thrown error and is surfaced by whichever caller
+  // happened to be in flight when the token rotted out.
+  useEffect(() => {
+    const onUnauthorized = () => handleLogout();
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleCreateBoard = async (name: string) => {
     try {

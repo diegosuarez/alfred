@@ -9,8 +9,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -49,6 +52,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,6 +68,7 @@ import es.tcdn.diego.alfred.data.BoardDetail
 import es.tcdn.diego.alfred.data.Task
 import es.tcdn.diego.alfred.data.TaskCreate
 import es.tcdn.diego.alfred.data.TaskUpdate
+import es.tcdn.diego.alfred.ui.common.AvatarStack
 import es.tcdn.diego.alfred.ui.common.GlassCard
 import es.tcdn.diego.alfred.ui.common.parseHex
 import es.tcdn.diego.alfred.ui.common.priorityAccent
@@ -85,9 +90,9 @@ fun TasksScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var showAdd by remember { mutableStateOf(false) }
     var refreshTick by remember { mutableStateOf(0) }
-    var selectedColumnId by remember { mutableStateOf<Int?>(null) }
+    var selectedColumnId by rememberSaveable { mutableStateOf<Int?>(null) }
     var showCompleted by remember { mutableStateOf(false) }
-    var query by remember { mutableStateOf("") }
+    var query by rememberSaveable { mutableStateOf("") }
     var showArchiveConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(boardId, refreshTick) {
@@ -113,7 +118,10 @@ fun TasksScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(current?.name ?: "Tablero") },
+                // The board name lives in the hero header inside the
+                // body — leaving the app bar empty keeps the eye on the
+                // content first.
+                title = {},
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(
@@ -167,12 +175,27 @@ fun TasksScreen(
             )
 
             else -> Column(Modifier.padding(padding)) {
-                // Search bar — filters titles + descriptions + names across
-                // the current column.
+                // Hero header with the board name and a compact task count
+                // so the user always knows where they are.
+                val totalTasks = current?.columns?.sumOf { c ->
+                    c.tasks.count { !it.completed && it.parentTaskId == null }
+                } ?: 0
+                Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    Text(
+                        current?.name ?: "Tablero",
+                        style = MaterialTheme.typography.headlineMedium,
+                    )
+                    Text(
+                        "$totalTasks tareas pendientes",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it },
-                    placeholder = { Text("Buscar tareas") },
+                    placeholder = { Text("Buscar tareas, personas, descripción…") },
                     leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                     singleLine = true,
                     modifier = Modifier
@@ -313,94 +336,126 @@ private fun TaskCard(
     onClick: () -> Unit,
     onToggle: (Boolean) -> Unit,
 ) {
-    val tint = priorityTint(task.priority)
+    val accent = priorityAccent(task.priority)
     val coverImage = task.attachments.firstOrNull { it.isImage }
     val docCount = task.attachments.count { !it.isImage }
     val childCount = task.children.size
     val doneChildren = task.children.count { it.completed }
+    val showPriorityStripe = task.priority != "medium"
 
     GlassCard(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() },
-        tint = tint,
         contentPadding = 0,
     ) {
-        Column {
-            // Cover image bleeds to the card edges, matching the web look.
-            if (coverImage != null) {
-                AsyncImage(
-                    model = ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
-                        .data(absUrl(apiUrl, coverImage.url, token))
-                        .crossfade(true)
-                        .build(),
-                    contentDescription = coverImage.filename,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(140.dp)
-                        .clip(RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp)),
+        // height(IntrinsicSize.Min) lets the priority stripe's
+        // fillMaxHeight match the column's natural height.
+        Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+            if (showPriorityStripe) {
+                Box(
+                    Modifier
+                        .width(4.dp)
+                        .fillMaxHeight()
+                        .background(accent)
                 )
             }
 
-            Column(Modifier.padding(14.dp)) {
-                // Tags row (always present even if empty for spacing balance).
-                if (task.tags.isNotEmpty()) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        task.tags.take(4).forEach { tag ->
-                            TagChip(tag.name, tag.color)
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                }
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(
-                        checked = task.completed,
-                        onCheckedChange = onToggle,
-                        colors = CheckboxDefaults.colors(
-                            uncheckedColor = priorityAccent(task.priority),
-                        ),
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        task.title,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = if (task.completed)
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        else MaterialTheme.colorScheme.onSurface,
-                        textDecoration = if (task.completed)
-                            androidx.compose.ui.text.style.TextDecoration.LineThrough
-                        else null,
+            Column(Modifier.weight(1f)) {
+                // Cover image at the very top, bled to the card edges.
+                if (coverImage != null) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(
+                            androidx.compose.ui.platform.LocalContext.current
+                        )
+                            .data(absUrl(apiUrl, coverImage.url, token))
+                            .crossfade(true)
+                            .build(),
+                        contentDescription = coverImage.filename,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(16f / 9f),
                     )
                 }
 
-                // Badges row (subtasks / reminders / attachments / due date).
-                val badges = mutableListOf<Pair<String, Color>>()
-                if (childCount > 0) {
-                    badges += "☑ $doneChildren/$childCount" to MaterialTheme.colorScheme.onSurfaceVariant
-                }
-                if (task.reminders.isNotEmpty()) {
-                    badges += "🔔 ${task.reminders.size}" to Color(0xFFF59E0B)
-                }
-                if (docCount > 0) {
-                    badges += "📎 $docCount" to MaterialTheme.colorScheme.onSurfaceVariant
-                }
-                task.dueDate?.let { iso ->
-                    badges += "🗓 ${iso.take(10)}" to MaterialTheme.colorScheme.onSurfaceVariant
-                }
-                if (badges.isNotEmpty()) {
-                    Spacer(Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        badges.forEach { (text, color) ->
-                            Text(text, style = MaterialTheme.typography.labelSmall, color = color)
+                Column(Modifier.padding(16.dp)) {
+                    // Tags row above the title.
+                    if (task.tags.isNotEmpty()) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            task.tags.take(4).forEach { tag ->
+                                TagChip(tag.name, tag.color)
+                            }
+                        }
+                        Spacer(Modifier.height(10.dp))
+                    }
+
+                    // Checkbox + title.
+                    Row(verticalAlignment = Alignment.Top) {
+                        Checkbox(
+                            checked = task.completed,
+                            onCheckedChange = onToggle,
+                            modifier = Modifier.offset(x = (-8).dp, y = (-4).dp),
+                            colors = CheckboxDefaults.colors(
+                                uncheckedColor = accent,
+                                checkedColor = MaterialTheme.colorScheme.primary,
+                            ),
+                        )
+                        Text(
+                            task.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = if (task.completed)
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.onSurface,
+                            textDecoration = if (task.completed)
+                                androidx.compose.ui.text.style.TextDecoration.LineThrough
+                            else null,
+                        )
+                    }
+
+                    // Footer row: badges left, assignee avatars right.
+                    val badges = buildList {
+                        if (childCount > 0) {
+                            add("☑ $doneChildren/$childCount" to MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (task.reminders.isNotEmpty()) {
+                            add("🔔 ${task.reminders.size}" to Color(0xFFF59E0B))
+                        }
+                        if (docCount > 0) {
+                            add("📎 $docCount" to MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        task.dueDate?.let { iso ->
+                            add("🗓 ${iso.take(10)}" to MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                }
+                    if (badges.isNotEmpty() || task.assignees.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                badges.forEach { (text, color) ->
+                                    Text(
+                                        text,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = color,
+                                    )
+                                }
+                            }
+                            Spacer(Modifier.weight(1f))
+                            AvatarStack(
+                                contacts = task.assignees,
+                                apiUrl = apiUrl,
+                                token = token,
+                            )
+                        }
+                    }
 
-                // Subtasks rendered as nested rows with an L-connector.
-                if (task.children.isNotEmpty()) {
-                    Spacer(Modifier.height(10.dp))
-                    task.children.forEach { child -> SubtaskRow(child) }
+                    // Subtasks as nested rows.
+                    if (task.children.isNotEmpty()) {
+                        Spacer(Modifier.height(12.dp))
+                        task.children.forEach { child -> SubtaskRow(child) }
+                    }
                 }
             }
         }

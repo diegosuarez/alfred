@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -33,28 +34,34 @@ fun screenBackground(contextColorHex: String? = null): Brush {
     }
 }
 
-/** Glassmorphic-ish surface — semi-translucent fill + 1 px hairline.
- *  Compose lacks backdrop blur out of the box; this approximation lands
- *  close to the web's vibe without expensive RenderEffect on every frame. */
+/** Glassmorphic-ish surface — semi-translucent fill + 1 px hairline +
+ *  subtle drop shadow for depth. Compose lacks backdrop blur out of the
+ *  box; this approximation lands close to the web's vibe without
+ *  expensive RenderEffect on every frame. */
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier,
     tint: Color = Color.Transparent,
-    cornerRadius: Int = 14,
-    contentPadding: Int = 14,
+    cornerRadius: Int = 16,
+    contentPadding: Int = 16,
+    elevated: Boolean = true,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    val baseFill = Color.White.copy(alpha = 0.04f)
+    val shape = RoundedCornerShape(cornerRadius.dp)
+    val baseFill = Color.White.copy(alpha = 0.045f)
     val blended = if (tint == Color.Transparent) baseFill else tint
+    var m: Modifier = modifier
+    if (elevated) {
+        // Compose's shadow modifier is GPU-cheap and gives just enough
+        // lift to separate cards from the gradient background without
+        // looking like a Material 1 dropshadow.
+        m = m.shadow(elevation = 6.dp, shape = shape, ambientColor = Color.Black, spotColor = Color.Black)
+    }
     Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(cornerRadius.dp))
+        modifier = m
+            .clip(shape)
             .background(blended)
-            .border(
-                1.dp,
-                Color.White.copy(alpha = 0.08f),
-                RoundedCornerShape(cornerRadius.dp),
-            )
+            .border(1.dp, Color.White.copy(alpha = 0.06f), shape)
             .padding(contentPadding.dp),
         content = content,
     )

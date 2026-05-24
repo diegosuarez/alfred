@@ -14,17 +14,22 @@ export const setToken = (newToken: string) => {
 
 export const getToken = () => token;
 
+/** Fires when the backend rejects our credentials mid-session (JWT
+ *  expiry, PAT revoked, etc.). App.tsx subscribes and bounces the user
+ *  to the login screen so stale UI doesn't fight invisible 401s. */
+export const UNAUTHORIZED_EVENT = 'alfred:unauthorized';
+
 async function request(endpoint: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers || {});
-  
+
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }
-  
+
   if (options.body && !(options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
   }
-  
+
   const response = await fetch(`/api${endpoint}`, {
     ...options,
     headers,
@@ -32,16 +37,30 @@ async function request(endpoint: string, options: RequestInit = {}) {
     // is stored cross-origin and replayed on Google's callback redirect.
     credentials: 'include',
   });
-  
+
+  // Session expiry / revoked token: only treat as "logged out" when the
+  // call carried our Bearer (i.e. we believed we were authenticated).
+  // Login / register endpoints can legitimately 401 on bad credentials
+  // — they handle their own messaging.
+  if (
+    response.status === 401 &&
+    token &&
+    !endpoint.startsWith('/auth/')
+  ) {
+    setToken('');
+    window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
+    throw new Error('Sesión caducada. Vuelve a iniciar sesión.');
+  }
+
   if (response.status === 204) {
     return null;
   }
-  
+
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.detail || 'Algo salió mal en el servidor.');
   }
-  
+
   return response.json();
 }
 

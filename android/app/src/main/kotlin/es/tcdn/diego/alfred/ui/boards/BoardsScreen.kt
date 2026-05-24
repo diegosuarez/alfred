@@ -39,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,7 +70,10 @@ fun BoardsScreen(
     var boards by remember { mutableStateOf<List<Board>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf<String?>(null) }
-    var activeContextId by remember { mutableStateOf<Int?>(null) }
+    // Saveable so navigating into a board and popping back returns to
+    // the same context the user was viewing — plain remember would reset
+    // here because BoardsScreen leaves the composition during nav.
+    var activeContextId by rememberSaveable { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(config.apiUrl, config.token) {
         loading = true
@@ -117,13 +121,7 @@ fun BoardsScreen(
         Scaffold(
             topBar = {
                 TopAppBar(
-                    title = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            ContextDot(color = activeContext?.color)
-                            Spacer(Modifier.size(8.dp))
-                            Text(activeContext?.name ?: "Contextos")
-                        }
-                    },
+                    title = {},
                     navigationIcon = {
                         IconButton(onClick = { scope.launch { drawerState.open() } }) {
                             Icon(Icons.Default.Menu, contentDescription = "Contextos")
@@ -160,29 +158,64 @@ fun BoardsScreen(
                     modifier = Modifier.padding(padding).padding(16.dp),
                 )
 
-                else -> LazyColumn(
-                    modifier = Modifier
-                        .padding(padding)
-                        .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    contentPadding = PaddingValues(vertical = 12.dp),
-                ) {
-                    items(visibleBoards) { board ->
-                        GlassCard(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onPickBoard(board.id) },
-                        ) {
-                            Column {
-                                Text(
-                                    "${board.icon ?: "📁"}  ${board.name}",
-                                    style = MaterialTheme.typography.titleMedium,
-                                )
-                                board.description?.takeIf { it.isNotBlank() }?.let {
-                                    Spacer(Modifier.height(4.dp))
+                else -> Column(Modifier.padding(padding)) {
+                    // Hero header — colour-led, with the context name large
+                    // and a quiet board count below.
+                    Column(
+                        Modifier.padding(horizontal = 20.dp, vertical = 12.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            ContextDot(color = activeContext?.color, size = 16)
+                            Spacer(Modifier.size(10.dp))
+                            Text(
+                                activeContext?.name ?: "Contextos",
+                                style = MaterialTheme.typography.headlineMedium,
+                            )
+                        }
+                        Text(
+                            "${visibleBoards.size} tableros",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+
+                    LazyColumn(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        contentPadding = PaddingValues(vertical = 8.dp, horizontal = 0.dp),
+                    ) {
+                        items(visibleBoards) { board ->
+                            GlassCard(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onPickBoard(board.id) },
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
-                                        it,
-                                        style = MaterialTheme.typography.bodyMedium,
+                                        board.icon ?: "📁",
+                                        style = MaterialTheme.typography.headlineMedium,
+                                    )
+                                    Spacer(Modifier.size(14.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            board.name,
+                                            style = MaterialTheme.typography.titleMedium,
+                                        )
+                                        board.description
+                                            ?.takeIf { it.isNotBlank() }
+                                            ?.let {
+                                                Spacer(Modifier.size(4.dp))
+                                                Text(
+                                                    it,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            }
+                                    }
+                                    Text(
+                                        "›",
+                                        style = MaterialTheme.typography.headlineMedium,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
@@ -272,11 +305,11 @@ private fun ContextsDrawer(
 }
 
 @Composable
-private fun ContextDot(color: String?) {
+private fun ContextDot(color: String?, size: Int = 12) {
     val parsed = color?.parseHex() ?: Color.White.copy(alpha = 0.18f)
     Box(
         Modifier
-            .size(12.dp)
+            .size(size.dp)
             .clip(CircleShape)
             .background(parsed)
     )
