@@ -190,6 +190,25 @@ body {
   animation: slideInRight 0.35s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
 
+/* Native form controls render their popups with OS-level styling that
+   ignores our dark theme. The result is white text on a white dropdown
+   (illegible) and a black calendar glyph on a dark input (also
+   illegible). These two rules fix both without abandoning the glass
+   look of the rest of the form. */
+select option {
+  color: #111;
+  background: #ffffff;
+}
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="month"]::-webkit-calendar-picker-indicator,
+input[type="week"]::-webkit-calendar-picker-indicator {
+  filter: invert(1) brightness(1.2);
+  opacity: 0.85;
+  cursor: pointer;
+}
+
 /* Markdown rendering — applies to anything React-Markdown emits inside
    .markdown-body. Tweaks the defaults to fit Alfred's glass aesthetic. */
 .markdown-body p {
