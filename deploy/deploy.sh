@@ -33,8 +33,9 @@ log "Sanity checks"
 # ---------------------------------------------------------------------------
 [[ -d "$ALFRED_DIR" ]] || { echo "Missing $ALFRED_DIR — clone the repo there first." >&2; exit 1; }
 command -v docker >/dev/null || { echo "Install docker first."; exit 1; }
-command -v nginx >/dev/null  || { echo "Install nginx first (apt install nginx)."; exit 1; }
+command -v nginx >/dev/null || [[ -x /usr/sbin/nginx ]] || { echo "Install nginx first (apt install nginx)."; exit 1; }
 command -v certbot >/dev/null || { echo "Install certbot first (apt install certbot python3-certbot-nginx)."; exit 1; }
+NGINX_BIN="$(command -v nginx || printf /usr/sbin/nginx)"
 
 # Resolve the configured domain — abort early if DNS isn't there yet,
 # otherwise certbot will fail and leave nginx wedged.
@@ -73,7 +74,7 @@ upsert_env() {
 upsert_env APP_URL "https://${DOMAIN}"
 upsert_env FRONTEND_URL "https://${DOMAIN}"
 # Tighten CORS to the public host plus localhost for dev access from the same box.
-upsert_env CORS_ORIGINS "https://${DOMAIN},http://localhost:30001"
+upsert_env CORS_ORIGINS "https://${DOMAIN},http://localhost:30005"
 # Accept browser-side requests from any tail*.ts.net host too so the
 # Tailscale-served URL keeps working in parallel.
 upsert_env CORS_ORIGIN_REGEX '^https://.*\.tail.*\.ts\.net$'
@@ -88,37 +89,21 @@ install -m 0644 "${ALFRED_DIR}/deploy/nginx/${DOMAIN}.conf" "$NGINX_SITE"
 ln -sfn "$NGINX_SITE" "$NGINX_ENABLED"
 mkdir -p /var/www/letsencrypt
 
-# Validate the config before any reload.
-nginx -t
-
 # ---------------------------------------------------------------------------
-log "Obtaining / renewing Let's Encrypt certificate"
+log "Checking TLS certificate"
 # ---------------------------------------------------------------------------
-if [[ ! -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]]; then
-    # First-time bootstrap: temporarily disable the 443 server block so
-    # nginx can serve the HTTP-01 challenge before the cert exists.
-    TMP="${NGINX_SITE}.bootstrap"
-    cat > "$TMP" <<EOF
-server {
-    listen 80;
-    server_name ${DOMAIN};
-    location /.well-known/acme-challenge/ { root /var/www/letsencrypt; }
-    location / { return 404; }
-}
-EOF
-    ln -sfn "$TMP" "$NGINX_ENABLED"
-    systemctl reload nginx
+if [[ -f "/etc/letsencrypt/live/wildcard.diego.tcdn.es/fullchain.pem" ]]; then
+    echo "    using existing wildcard.diego.tcdn.es certificate"
+elif [[ -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]]; then
+    echo "    using existing ${DOMAIN} certificate"
+else
+    warn "No wildcard or domain certificate found. Requesting ${DOMAIN} certificate."
     certbot certonly --webroot -w /var/www/letsencrypt \
         --non-interactive --agree-tos -m "$LE_EMAIL" \
         -d "$DOMAIN"
-    rm -f "$TMP"
-    ln -sfn "$NGINX_SITE" "$NGINX_ENABLED"
-else
-    certbot renew --quiet || warn "certbot renew failed — current cert still valid?"
 fi
 
-# Re-validate now that the cert exists and reload.
-nginx -t
+"$NGINX_BIN" -t
 systemctl reload nginx
 
 # ---------------------------------------------------------------------------

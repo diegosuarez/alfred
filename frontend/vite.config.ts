@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 
 // Where /api/* gets proxied during dev. Inside docker compose the backend
 // service is reachable as http://backend:8000. Outside docker, override
-// with VITE_PROXY_TARGET=http://localhost:30000 (or wherever uvicorn is).
+// with VITE_PROXY_TARGET=http://localhost:30004 (or wherever uvicorn is).
 const proxyTarget = process.env.VITE_PROXY_TARGET || 'http://backend:8000'
 
 // https://vite.dev/config/

@@ -151,9 +151,9 @@ Una vez levantado:
 
 | Servicio   | URL local                  | Puerto contenedor |
 |------------|----------------------------|-------------------|
-| Frontend   | http://localhost:30001     | 5173 (Vite dev)   |
-| Backend    | http://localhost:30000     | 8000 (FastAPI)    |
-| Swagger    | http://localhost:30000/docs| 8000              |
+| Frontend   | http://localhost:30005     | 5173 (Vite dev)   |
+| Backend    | http://localhost:30004     | 8000 (FastAPI)    |
+| Swagger    | http://localhost:30004/docs| 8000              |
 
 El SPA habla con `/api/*` en el mismo origen vía el proxy de Vite, así que cookies/CORS no son problema.
 

@@ -16,7 +16,7 @@ chat, English for code/docs/commits).
 - **Persistence**: SQLite. Schema is created on startup via
   `Base.metadata.create_all` (no migrations).
 - **Container**: `docker-compose.yml` at the repo root. Backend mapped
-  to host `30000`, frontend to host `30001`. Bind mounts give hot
+  to host `30004`, frontend to host `30005`. Bind mounts give hot
   reload.
 - **Auth**: email + password (bcrypt + JWT bearer) AND Google OAuth2.
   Login routes coexist; a Google-first user has hashed_password NULL.
@@ -27,8 +27,8 @@ chat, English for code/docs/commits).
 
 | Service  | Host port | Container port |
 | -------- | --------- | -------------- |
-| backend  | 30000     | 8000           |
-| frontend | 30001     | 5173           |
+| backend  | 30004     | 8000           |
+| frontend | 30005     | 5173           |
 
 Per `~/.claude/CLAUDE.md`, host-facing ports stay at ≥ 30000.
 
@@ -163,8 +163,8 @@ and `fetch_userinfo`. State validation is exercised directly.
 
 ```bash
 docker compose up --build
-# Frontend: http://localhost:30001
-# Backend:  http://localhost:30000  (Swagger at /docs)
+# Frontend: http://localhost:30005
+# Backend:  http://localhost:30004  (Swagger at /docs)
 ```
 
 The SQLite DB lives at `backend/data/alfred.db` on the host (bind mounted).
@@ -174,7 +174,7 @@ The SQLite DB lives at `backend/data/alfred.db` on the host (bind mounted).
 ```bash
 cd backend
 uv sync
-uv run uvicorn app.main:app --reload --port 30000
+uv run uvicorn app.main:app --reload --port 30004
 ```
 
 DB defaults to `./data/alfred.db` (relative to `backend/`).
@@ -184,10 +184,10 @@ DB defaults to `./data/alfred.db` (relative to `backend/`).
 ```bash
 cd frontend
 npm install
-npm run dev -- --port 30001
+npm run dev -- --port 30005
 ```
 
-The dev server picks up `VITE_API_URL` (default `http://localhost:30000`).
+The dev server picks up `VITE_API_URL` (default `http://localhost:30004`).
 
 ### Tests
 
