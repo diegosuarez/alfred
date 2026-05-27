@@ -7,6 +7,7 @@ import { ReminderPicker } from './ReminderPicker';
 import { FilterModal, EMPTY_FILTERS, type Filters } from './FilterModal';
 import { useEscapeKey } from '../hooks/useEscapeKey';
 import { AttachmentsSection, type Attachment } from './AttachmentsSection';
+import { TaskContextMenu } from './TaskContextMenu';
 import { useAuthedImage } from '../hooks/useAuthedImage';
 import { MarkdownView } from './MarkdownView';
 
@@ -154,6 +155,12 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   const [showReminderPicker, setShowReminderPicker] = useState(false);
   const [showMovePicker, setShowMovePicker] = useState(false);
   const [moveTargetBoardId, setMoveTargetBoardId] = useState<number | null>(null);
+  // Right-click context menu on a task card: which task + where.
+  const [cardMenu, setCardMenu] = useState<{ task: Task; x: number; y: number } | null>(null);
+  // Trello-style drop indicator: which column + visible slot the dragged
+  // card will land in. Index is in *visible* space (post-filter).
+  const [dropHint, setDropHint] = useState<{ columnId: number; index: number } | null>(null);
+  const [draggingTaskId, setDraggingTaskId] = useState<number | null>(null);
   const [moveTargetColumns, setMoveTargetColumns] = useState<Column[]>([]);
   const [moveTargetColumnId, setMoveTargetColumnId] = useState<number | null>(null);
 
@@ -650,6 +657,89 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     }
   };
 
+  // ---- Context-menu actions (operate on an arbitrary task id, not the
+  // modal's selectedTask) ----------------------------------------------------
+  const ctxMoveColumn = async (taskId: number, columnId: number) => {
+    setCardMenu(null);
+    await moveTask(taskId, columnId);
+  };
+
+  const ctxMoveBoard = async (taskId: number, boardId: number) => {
+    setCardMenu(null);
+    try {
+      const detail = await api.getBoardDetail(boardId);
+      const firstCol = detail.columns?.[0];
+      if (!firstCol) {
+        alert('El tablero destino no tiene columnas.');
+        return;
+      }
+      await api.moveTaskToBoard(taskId, boardId, firstCol.id);
+      if (onTaskMovedToBoard) onTaskMovedToBoard(boardId);
+      else fetchBoardDetails();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const ctxSetPriority = async (taskId: number, priority: string) => {
+    setCardMenu(null);
+    try {
+      await api.updateTask(taskId, { priority });
+      fetchBoardDetails();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  // Toggle a single assignee; keep the menu open so several can be set
+  // in one pass. Optimistically reflect on the open menu's task copy.
+  const ctxToggleAssignee = async (taskId: number, contactId: number) => {
+    const flat = allBoardTasks();
+    const task = flat.find((t) => t.id === taskId);
+    if (!task) return;
+    const current = task.assignees.map((a) => a.id);
+    const next = current.includes(contactId)
+      ? current.filter((id) => id !== contactId)
+      : [...current, contactId];
+    try {
+      const updated = await api.updateTask(taskId, { assignee_ids: next });
+      // Keep the menu's snapshot in sync so the checkmarks update live.
+      setCardMenu((m) =>
+        m && m.task.id === taskId ? { ...m, task: updated } : m,
+      );
+      fetchBoardDetails();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const ctxArchive = async (taskId: number) => {
+    setCardMenu(null);
+    try {
+      await api.updateTask(taskId, { archived: true });
+      fetchBoardDetails();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const ctxDelete = async (taskId: number) => {
+    setCardMenu(null);
+    if (
+      !confirm(
+        '¿Borrar esta tarea? Se eliminarán sus subtareas, recordatorios y adjuntos.',
+      )
+    )
+      return;
+    try {
+      await api.deleteTask(taskId);
+      if (selectedTask?.id === taskId) setSelectedTask(null);
+      fetchBoardDetails();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
   const handleArchiveAllInColumn = async (colId: number, colName: string) => {
     if (
       !confirm(
@@ -685,11 +775,74 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   const handleDragStart = (e: React.DragEvent, taskId: number) => {
     e.dataTransfer.setData('text/plain', taskId.toString());
     e.dataTransfer.effectAllowed = 'move';
+    setDraggingTaskId(taskId);
   };
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
+  };
+
+  // Clear the drop indicator once the gesture finishes (drop or cancel).
+  const handleDragEnd = () => {
+    setDraggingTaskId(null);
+    setDropHint(null);
+  };
+
+  // Set the indicator from a card under the cursor: before it when the
+  // pointer is in the top half, after it when in the bottom half.
+  const handleCardDragOver = (
+    e: React.DragEvent,
+    columnId: number,
+    visibleIndex: number,
+  ) => {
+    if (draggingTaskId == null) return; // a column drag, not a card
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const after = e.clientY > rect.top + rect.height / 2;
+    const index = after ? visibleIndex + 1 : visibleIndex;
+    setDropHint((prev) =>
+      prev && prev.columnId === columnId && prev.index === index
+        ? prev
+        : { columnId, index },
+    );
+  };
+
+  // Hovering the empty area below the last card → drop at the end.
+  const handleColumnTailDragOver = (e: React.DragEvent, columnId: number) => {
+    if (draggingTaskId == null) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const visibleCount =
+      board?.columns.find((c) => c.id === columnId)?.tasks.filter(passesFilters)
+        .length ?? 0;
+    setDropHint((prev) =>
+      prev && prev.columnId === columnId && prev.index === visibleCount
+        ? prev
+        : { columnId, index: visibleCount },
+    );
+  };
+
+  /** Translate a visible-space slot index to the unfiltered position the
+   *  reorder API expects, then delegate to moveTask. */
+  const dropTaskAtVisibleIndex = async (
+    sourceId: number,
+    columnId: number,
+    visibleIndex: number,
+  ) => {
+    const col = board?.columns.find((c) => c.id === columnId);
+    if (!col) return;
+    const visible = col.tasks.filter(passesFilters);
+    let targetOriginalIndex: number;
+    if (visibleIndex >= visible.length) {
+      targetOriginalIndex = col.tasks.length;
+    } else {
+      const targetTask = visible[visibleIndex];
+      targetOriginalIndex = col.tasks.findIndex((t) => t.id === targetTask.id);
+    }
+    await moveTask(sourceId, columnId, targetOriginalIndex);
   };
 
   const moveTask = async (taskId: number, targetColId: number, targetIndex?: number) => {
@@ -707,13 +860,31 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     }
     if (!draggedTask || sourceColId === null) return;
 
+    // For an intra-column move, the target index was measured in the
+    // list that still contained the dragged card. After we splice it out
+    // the slots above the insertion point shift down by one, so we
+    // decrement to keep the card where the user aimed.
+    const sourceOriginalIndex =
+      board.columns.find((c) => c.id === sourceColId)?.tasks.findIndex(
+        (t) => t.id === taskId,
+      ) ?? -1;
+
     // Build the next state: remove from source, insert into target.
     const updatedColumns = board.columns.map((col) => {
       if (col.id !== sourceColId && col.id !== targetColId) return col;
 
       let tasks = col.tasks.filter((t) => t.id !== taskId);
       if (col.id === targetColId) {
-        const insertAt = targetIndex === undefined ? tasks.length : Math.min(targetIndex, tasks.length);
+        let insertAt =
+          targetIndex === undefined ? tasks.length : targetIndex;
+        if (
+          sourceColId === targetColId &&
+          sourceOriginalIndex !== -1 &&
+          sourceOriginalIndex < insertAt
+        ) {
+          insertAt -= 1;
+        }
+        insertAt = Math.max(0, Math.min(insertAt, tasks.length));
         tasks = [
           ...tasks.slice(0, insertAt),
           { ...draggedTask!, column_id: targetColId },
@@ -765,6 +936,9 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
 
   const handleColumnDrop = async (e: React.DragEvent, targetColId: number) => {
     e.preventDefault();
+    const hint = dropHint;
+    setDropHint(null);
+    setDraggingTaskId(null);
     const colIdStr = e.dataTransfer.getData('application/x-column-id');
     if (colIdStr) {
       await reorderColumnTo(parseInt(colIdStr), targetColId);
@@ -772,17 +946,25 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     }
     const taskIdStr = e.dataTransfer.getData('text/plain');
     if (!taskIdStr) return;
-    await moveTask(parseInt(taskIdStr), targetColId);
+    // Honour the indicator if it points at this column; otherwise append.
+    if (hint && hint.columnId === targetColId) {
+      await dropTaskAtVisibleIndex(parseInt(taskIdStr), targetColId, hint.index);
+    } else {
+      await moveTask(parseInt(taskIdStr), targetColId);
+    }
   };
 
   const handleTaskDrop = async (
     e: React.DragEvent,
     targetColId: number,
-    targetIndex: number,
+    visibleIndex: number,
     targetTaskId: number,
   ) => {
     e.preventDefault();
     e.stopPropagation();
+    const hint = dropHint;
+    setDropHint(null);
+    setDraggingTaskId(null);
     const taskIdStr = e.dataTransfer.getData('text/plain');
     if (!taskIdStr) return;
     const sourceId = parseInt(taskIdStr);
@@ -791,7 +973,11 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
       await nestTaskUnder(sourceId, targetTaskId);
       return;
     }
-    await moveTask(sourceId, targetColId, targetIndex);
+    // Prefer the live indicator (accounts for top/bottom-half); fall back
+    // to this card's own slot if the hint is stale or in another column.
+    const idx =
+      hint && hint.columnId === targetColId ? hint.index : visibleIndex;
+    await dropTaskAtVisibleIndex(sourceId, targetColId, idx);
   };
 
   // Reparent `sourceId` under `targetId` via the existing update endpoint.
@@ -912,10 +1098,16 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
           ...(opts.isChild ? styles.childTaskCard : {}),
           ...(task.completed ? styles.completedTaskCard : {}),
           ...(priorityBackground ? { background: priorityBackground } : {}),
+          ...(draggingTaskId === task.id ? styles.draggingCard : {}),
         }}
         draggable={draggable}
         onDragStart={draggable ? (e) => handleDragStart(e, task.id) : undefined}
-        onDragOver={draggable ? handleDragOver : undefined}
+        onDragEnd={draggable ? handleDragEnd : undefined}
+        onDragOver={
+          draggable
+            ? (e) => handleCardDragOver(e, opts.columnId, opts.dropIndex as number)
+            : undefined
+        }
         onDrop={
           draggable
             ? (e) =>
@@ -928,7 +1120,11 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
             : undefined
         }
         onClick={() => setSelectedTask(task)}
-        title={`Prioridad: ${getPriorityLabel(task.priority)} · Shift+arrastrar para anidar como subtarea`}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setCardMenu({ task, x: e.clientX, y: e.clientY });
+        }}
+        title={`Prioridad: ${getPriorityLabel(task.priority)} · Shift+arrastrar para anidar · clic derecho para acciones`}
       >
         <div style={styles.taskCardHeader}>
           {/* Tags take the header slot the priority badge used to occupy. */}
@@ -1279,40 +1475,59 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
 
             {/* Task list container */}
             <div style={styles.taskList}>
-              {col.tasks
-                .filter(passesFilters)
-                .map((task) => {
-                  // Drop index targets the original (unfiltered) position so
-                  // reordering still makes sense when a tag filter is active.
-                  const originalIndex = col.tasks.findIndex((t) => t.id === task.id);
-                  const children = task.children ?? [];
-                  return (
-                    <div key={task.id} style={styles.taskGroup}>
-                      {renderCard(task, {
-                        columnId: col.id,
-                        dropIndex: originalIndex,
-                      })}
-                      {children.length > 0 && (
-                        <div style={styles.childrenContainer}>
-                          {children.map((child) => (
-                            <div key={child.id} style={styles.childWrapper}>
-                              <span style={styles.connectorH} />
-                              {renderCard(child, {
-                                columnId: col.id,
-                                dropIndex: null,
-                                isChild: true,
-                              })}
-                            </div>
-                          ))}
-                        </div>
+              {(() => {
+                const visible = col.tasks.filter(passesFilters);
+                const hintHere =
+                  dropHint && dropHint.columnId === col.id ? dropHint.index : -1;
+                return (
+                  <>
+                    {visible.map((task, vi) => {
+                      const children = task.children ?? [];
+                      return (
+                        <React.Fragment key={task.id}>
+                          {hintHere === vi && <div style={styles.dropPlaceholder} />}
+                          <div style={styles.taskGroup}>
+                            {renderCard(task, {
+                              columnId: col.id,
+                              // dropIndex now carries the *visible* slot,
+                              // used by the Trello-style drop indicator.
+                              dropIndex: vi,
+                            })}
+                            {children.length > 0 && (
+                              <div style={styles.childrenContainer}>
+                                {children.map((child) => (
+                                  <div key={child.id} style={styles.childWrapper}>
+                                    <span style={styles.connectorH} />
+                                    {renderCard(child, {
+                                      columnId: col.id,
+                                      dropIndex: null,
+                                      isChild: true,
+                                    })}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </React.Fragment>
+                      );
+                    })}
+                    {hintHere >= visible.length && (
+                      <div style={styles.dropPlaceholder} />
+                    )}
+                    {/* Tail zone: hovering here (empty space / below the
+                        last card) points the indicator at the end. Grows
+                        to fill the column so the whole lower area counts. */}
+                    <div
+                      style={styles.dropTailZone}
+                      onDragOver={(e) => handleColumnTailDragOver(e, col.id)}
+                    >
+                      {visible.length === 0 && (
+                        <div style={styles.emptyColText}>Arrastra aquí tareas</div>
                       )}
                     </div>
-                  );
-                })}
-
-              {col.tasks.length === 0 && (
-                <div style={styles.emptyColText}>Arrastra aquí tareas</div>
-              )}
+                  </>
+                );
+              })()}
             </div>
 
             {/* Add Task Area */}
@@ -1965,6 +2180,28 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
           onApply={setFilters}
         />
       )}
+
+      {cardMenu && board && (
+        <TaskContextMenu
+          anchor={{ x: cardMenu.x, y: cardMenu.y }}
+          taskTitle={cardMenu.task.title}
+          taskPriority={cardMenu.task.priority}
+          assigneeIds={cardMenu.task.assignees.map((a) => a.id)}
+          columns={board.columns.map((c) => ({ id: c.id, name: c.name }))}
+          currentColumnId={cardMenu.task.column_id}
+          boards={moveCandidates.map((b) => ({ id: b.id, name: b.name }))}
+          contacts={allContacts}
+          onMoveColumn={(columnId) => ctxMoveColumn(cardMenu.task.id, columnId)}
+          onMoveBoard={(boardId) => ctxMoveBoard(cardMenu.task.id, boardId)}
+          onSetPriority={(priority) => ctxSetPriority(cardMenu.task.id, priority)}
+          onToggleAssignee={(contactId) =>
+            ctxToggleAssignee(cardMenu.task.id, contactId)
+          }
+          onArchive={() => ctxArchive(cardMenu.task.id)}
+          onDelete={() => ctxDelete(cardMenu.task.id)}
+          onClose={() => setCardMenu(null)}
+        />
+      )}
     </div>
   );
 };
@@ -2067,6 +2304,24 @@ const styles: Record<string, React.CSSProperties> = {
   taskCard: {
     padding: '16px',
     cursor: 'pointer',
+  },
+  dropPlaceholder: {
+    height: '52px',
+    borderRadius: 'var(--border-radius-sm, 8px)',
+    border: '2px dashed rgba(129, 140, 248, 0.7)',
+    background: 'rgba(129, 140, 248, 0.12)',
+    // The gap from taskList already spaces it; a tiny margin keeps the
+    // dashed box from kissing the neighbouring cards.
+    margin: '0',
+    flexShrink: 0,
+    transition: 'all 0.12s ease',
+  },
+  dropTailZone: {
+    flex: 1,
+    minHeight: '40px',
+  },
+  draggingCard: {
+    opacity: 0.4,
   },
   taskCardHeader: {
     display: 'flex',

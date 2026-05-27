@@ -209,6 +209,11 @@ input[type="week"]::-webkit-calendar-picker-indicator {
   cursor: pointer;
 }
 
+/* Right-click context menu rows on kanban cards. */
+.ctx-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
 /* Markdown rendering — applies to anything React-Markdown emits inside
    .markdown-body. Tweaks the defaults to fit Alfred's glass aesthetic. */
 .markdown-body p {
