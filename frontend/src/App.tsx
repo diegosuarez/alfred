@@ -313,6 +313,31 @@ export const App: React.FC = () => {
     }
   };
 
+  /** Snooze: create a fresh reminder at `isoUtc` for the same task, then
+   * tear down the current one. The new reminder is picked up by the
+   * regular poll/timer cycle in reloadReminders. */
+  const snoozeReminder = async (
+    reminderId: number,
+    taskId: number,
+    isoUtc: string,
+  ) => {
+    try {
+      await api.createReminder(taskId, isoUtc);
+    } catch (err: any) {
+      alert(`No se pudo aplazar: ${err.message ?? err}`);
+      return;
+    }
+    setFiredReminders((prev) => prev.filter((f) => f.reminderId !== reminderId));
+    try {
+      await api.deleteReminder(reminderId);
+    } catch (err) {
+      console.error('Error deleting snoozed reminder:', err);
+    }
+    // Refresh so the new reminder enters the scheduled-timers map and
+    // fires when its time comes.
+    reloadReminders();
+  };
+
   const handleLoginSuccess = () => {
     const token = getToken();
     setIsAuthenticated(true);
@@ -621,6 +646,7 @@ export const App: React.FC = () => {
       <ReminderAlerts
         fired={firedReminders}
         onDismiss={dismissReminder}
+        onSnooze={snoozeReminder}
         onOpenTask={(taskId) => {
           // Make sure we're on the board view so the task modal can mount.
           setCurrentView('board');
