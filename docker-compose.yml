@@ -15,7 +15,8 @@ services:
     environment:
       # Absolute path inside the container (4 slashes => absolute in SQLAlchemy URL).
       - DATABASE_URL=sqlite+aiosqlite:////app/data/alfred.db
-      - CORS_ORIGINS=https://alfred.diego.tcdn.es,http://localhost:30005,http://127.0.0.1:30005
+      # CORS_ORIGINS comes from backend/.env (see env_file above). The
+      # backend falls back to localhost dev origins if it's unset.
     command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
   frontend:

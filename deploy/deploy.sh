@@ -1,17 +1,26 @@
 #!/usr/bin/env bash
-# Bring up Alfred at alfred.diego.tcdn.es on this host.
+# Bring up Alfred on this host.
 #
 # Assumes:
 #   - Repo cloned at /opt/alfred (override with ALFRED_DIR=).
 #   - Docker + docker compose plugin installed.
 #   - nginx + certbot installed (apt: nginx, certbot, python3-certbot-nginx).
-#   - DNS for alfred.diego.tcdn.es already pointing at this host.
+#   - DNS for $ALFRED_DOMAIN already pointing at this host.
 #
 # Idempotent: safe to re-run after editing .env or after a `git pull`.
 #
+# Required env vars (no defaults — fail fast):
+#   ALFRED_DOMAIN   Public hostname, e.g. alfred.example.com
+#   LE_EMAIL        Email registered with Let's Encrypt for renewal notices
+#
+# Optional env vars:
+#   ALFRED_DIR             Path to the clone (default: /opt/alfred)
+#   ALFRED_SSL_CERT_DIR    /etc/letsencrypt/live/<dir> to use. Defaults to
+#                          $ALFRED_DOMAIN; override to point at a wildcard
+#                          cert instead, e.g. wildcard.example.com.
+#
 # Usage:
-#   sudo bash deploy/deploy.sh
-#   sudo ALFRED_DIR=/opt/alfred bash deploy/deploy.sh
+#   sudo ALFRED_DOMAIN=alfred.example.com LE_EMAIL=you@example.com bash deploy/deploy.sh
 set -euo pipefail
 
 if [[ $EUID -ne 0 ]]; then
@@ -19,11 +28,15 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
+: "${ALFRED_DOMAIN:?Set ALFRED_DOMAIN (e.g. ALFRED_DOMAIN=alfred.example.com)}"
+: "${LE_EMAIL:?Set LE_EMAIL (used by certbot for renewal notices)}"
+
 ALFRED_DIR="${ALFRED_DIR:-/opt/alfred}"
-DOMAIN="alfred.diego.tcdn.es"
-LE_EMAIL="${LE_EMAIL:-dsuarez@transparentedge.eu}"
+DOMAIN="$ALFRED_DOMAIN"
+SSL_CERT_DIR="${ALFRED_SSL_CERT_DIR:-$DOMAIN}"
 NGINX_SITE="/etc/nginx/sites-available/${DOMAIN}.conf"
 NGINX_ENABLED="/etc/nginx/sites-enabled/${DOMAIN}.conf"
+NGINX_TEMPLATE="${ALFRED_DIR}/deploy/nginx/alfred.conf"
 
 log() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m!! %s\033[0m\n' "$*" >&2; }
@@ -32,6 +45,7 @@ warn() { printf '\033[1;33m!! %s\033[0m\n' "$*" >&2; }
 log "Sanity checks"
 # ---------------------------------------------------------------------------
 [[ -d "$ALFRED_DIR" ]] || { echo "Missing $ALFRED_DIR — clone the repo there first." >&2; exit 1; }
+[[ -f "$NGINX_TEMPLATE" ]] || { echo "Missing $NGINX_TEMPLATE." >&2; exit 1; }
 command -v docker >/dev/null || { echo "Install docker first."; exit 1; }
 command -v nginx >/dev/null || [[ -x /usr/sbin/nginx ]] || { echo "Install nginx first (apt install nginx)."; exit 1; }
 command -v certbot >/dev/null || { echo "Install certbot first (apt install certbot python3-certbot-nginx)."; exit 1; }
@@ -85,19 +99,23 @@ echo "    FRONTEND_URL=https://${DOMAIN}"
 # ---------------------------------------------------------------------------
 log "Installing nginx vhost"
 # ---------------------------------------------------------------------------
-install -m 0644 "${ALFRED_DIR}/deploy/nginx/${DOMAIN}.conf" "$NGINX_SITE"
+# Render the template with the target domain + cert directory and drop it
+# under sites-available. `__DOMAIN__` / `__SSL_CERT_DIR__` are the only
+# placeholders; everything else is reusable as-is.
+sed -e "s|__DOMAIN__|${DOMAIN}|g" \
+    -e "s|__SSL_CERT_DIR__|${SSL_CERT_DIR}|g" \
+    "$NGINX_TEMPLATE" > "$NGINX_SITE"
+chmod 0644 "$NGINX_SITE"
 ln -sfn "$NGINX_SITE" "$NGINX_ENABLED"
 mkdir -p /var/www/letsencrypt
 
 # ---------------------------------------------------------------------------
 log "Checking TLS certificate"
 # ---------------------------------------------------------------------------
-if [[ -f "/etc/letsencrypt/live/wildcard.diego.tcdn.es/fullchain.pem" ]]; then
-    echo "    using existing wildcard.diego.tcdn.es certificate"
-elif [[ -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]]; then
-    echo "    using existing ${DOMAIN} certificate"
+if [[ -f "/etc/letsencrypt/live/${SSL_CERT_DIR}/fullchain.pem" ]]; then
+    echo "    using existing ${SSL_CERT_DIR} certificate"
 else
-    warn "No wildcard or domain certificate found. Requesting ${DOMAIN} certificate."
+    warn "No certificate at /etc/letsencrypt/live/${SSL_CERT_DIR}. Requesting one for ${DOMAIN}."
     certbot certonly --webroot -w /var/www/letsencrypt \
         --non-interactive --agree-tos -m "$LE_EMAIL" \
         -d "$DOMAIN"
