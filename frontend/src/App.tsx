@@ -58,6 +58,13 @@ export const App: React.FC = () => {
   const [externalTaskFocus, setExternalTaskFocus] = useState<number | null>(null);
   const scheduledTimers = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
 
+  // Browser back integration. We mirror (currentView, activeContextId,
+  // activeBoardId) into the History API so the back gesture moves
+  // through prior boards / contexts / views instead of leaving the app.
+  // `poppingRef` keeps the push-effect from looping when popstate fires.
+  const poppingRef = useRef(false);
+  const historySeededRef = useRef(false);
+
   // Decodes JWT payload to extract user metadata
   const parseUserEmail = (token: string) => {
     try {
@@ -156,6 +163,52 @@ export const App: React.FC = () => {
       loadProfileFromGoogle();
     }
   }, [isAuthenticated, refreshTrigger]);
+
+  // --- Browser history wiring -----------------------------------------
+  // Mirror the SPA's nav state into history entries so back / forward
+  // (or Chrome's edge-swipe gesture on mobile) move within the app
+  // instead of leaving the page.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const onPop = (e: PopStateEvent) => {
+      const s = e.state as
+        | {
+            v?: 'board' | 'stats';
+            c?: number | null;
+            b?: number | null;
+          }
+        | null;
+      if (!s) return;
+      poppingRef.current = true;
+      setCurrentView(s.v ?? 'board');
+      setActiveContextId(s.c ?? null);
+      setActiveBoardId(s.b ?? null);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const state = {
+      v: currentView,
+      c: activeContextId,
+      b: activeBoardId,
+    };
+    if (!historySeededRef.current) {
+      // First navigable state after login — overwrite whatever the
+      // browser had so the back button doesn't leave the SPA on the
+      // very first action.
+      historySeededRef.current = true;
+      window.history.replaceState(state, '');
+      return;
+    }
+    if (poppingRef.current) {
+      poppingRef.current = false;
+      return;
+    }
+    window.history.pushState(state, '');
+  }, [isAuthenticated, currentView, activeContextId, activeBoardId]);
 
   // Pull the display name + avatar from the earliest connected Google
   // account. We refresh on every (re)load because the OAuth callback
@@ -354,6 +407,9 @@ export const App: React.FC = () => {
     setActiveBoardId(null);
     setCurrentView('board');
     setActiveTask(null);
+    // Reset the history seeder so the next login starts a fresh nav
+    // stack instead of pushing onto the previous user's entries.
+    historySeededRef.current = false;
   };
 
   // Catches mid-session 401s emitted by the API client. The token has
