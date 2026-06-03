@@ -127,68 +127,181 @@ alfred/
 
 ---
 
-## 🚀 Quickstart (Docker)
+## 🚀 Empezar en 3 minutos
+
+Ruta más corta para tener Alfred corriendo en tu portátil. No
+necesitas cuenta de Google, ni dominio, ni nada externo. Sólo
+Docker.
+
+### 1. Prerrequisitos
+
+- **Docker** + **Docker Compose** instalados. En Linux:
+  ```bash
+  curl -fsSL https://get.docker.com | sh
+  sudo usermod -aG docker $USER && newgrp docker
+  ```
+  En macOS / Windows: instalar [Docker Desktop](https://www.docker.com/products/docker-desktop/).
+- **git** y **openssl** (vienen ya en casi todo).
+
+### 2. Clonar y crear el `.env`
 
 ```bash
-git clone <repo>
+git clone https://github.com/diegosuarez/alfred.git
 cd alfred
-cp backend/.env.example backend/.env       # rellena GOOGLE_CLIENT_ID etc.
+cp backend/.env.example backend/.env
+```
+
+Ábrelo y rellena **una sola línea** — el resto se puede dejar
+como está para arrancar en local:
+
+```bash
+# Genera un secreto aleatorio y reemplaza el valor de JWT_SECRET
+openssl rand -hex 32
+# Pega el resultado en backend/.env →  JWT_SECRET=<lo-que-salga>
+```
+
+> `JWT_SECRET` es obligatorio: si falta, el backend se niega a
+> arrancar (es lo que firma las sesiones).
+
+### 3. Levantar el stack
+
+```bash
 docker compose up --build
 ```
 
-Una vez levantado:
+La primera vez tarda 1-2 minutos compilando las imágenes.
+Cuando veas `Application startup complete` y `VITE … ready`, abre:
 
-| Servicio   | URL local                  | Puerto contenedor |
-|------------|----------------------------|-------------------|
-| Frontend   | http://localhost:30005     | 5173 (Vite dev)   |
-| Backend    | http://localhost:30004     | 8000 (FastAPI)    |
-| Swagger    | http://localhost:30004/docs| 8000              |
+**👉 http://localhost:30005**
 
-El SPA habla con `/api/*` en el mismo origen vía el proxy de Vite, así que cookies/CORS no son problema.
+Pulsa **"Registrarse"**, mete un email y contraseña cualquiera, y
+ya estás dentro. Crea tu primer tablero y a usarlo.
 
-### Variables relevantes (`backend/.env`)
+| Servicio   | URL                          | Puerto contenedor |
+|------------|------------------------------|-------------------|
+| Frontend   | http://localhost:30005       | 5173 (Vite dev)   |
+| Backend    | http://localhost:30004       | 8000 (FastAPI)    |
+| Swagger    | http://localhost:30004/docs  | 8000              |
 
+El SPA habla con `/api/*` en el mismo origen vía proxy de Vite —
+cookies y CORS funcionan solos.
+
+Para parar: `Ctrl+C` y luego `docker compose down`. Tus datos
+viven en `backend/data/alfred.db` (gitignored).
+
+---
+
+## ⚙️ Configuración avanzada
+
+Todo lo de esta sección es **opcional**. Alfred funciona sin
+nada de esto — sólo abre puertas extra (login con Google,
+passkeys, notificaciones del navegador).
+
+### Login con Google (OAuth2)
+
+1. Ve a [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials).
+2. Crea un proyecto si no tienes ninguno → **Create credentials → OAuth client ID → Web application**.
+3. **Authorized JavaScript origins**: `http://localhost:30005`.
+4. **Authorized redirect URIs**: `http://localhost:30004/api/auth/google/callback`.
+5. Copia el Client ID y el Client Secret a `backend/.env`:
+   ```bash
+   GOOGLE_CLIENT_ID=...apps.googleusercontent.com
+   GOOGLE_CLIENT_SECRET=GOCSPX-...
+   ```
+6. `docker compose restart backend` y el botón "Entrar con Google" pasa a funcionar.
+
+### Web Push (notificaciones de recordatorios)
+
+Funciona out-of-the-box: el backend autogenera las claves VAPID
+y las persiste en `backend/data/vapid_keys.json` (formato
+base64url DER PKCS8, a prueba de actualizaciones de `py_vapid`).
+Solo tienes que aceptar el prompt del navegador la primera vez
+que crees un recordatorio.
+
+Si prefieres tus propias claves, ponlas en `backend/.env`:
 ```bash
-# JWT
-JWT_SECRET=cambia-esto
-
-# URLs del despliegue
-APP_URL=https://alfred.example.com
-FRONTEND_URL=https://alfred.example.com
-CORS_ORIGIN_REGEX=^https://.*\.tail.*\.ts\.net$    # opcional, para Tailscale en paralelo
-
-# Google OAuth2 (web — sign-in + connect-account)
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
-
-# Audiencias adicionales aceptadas en /api/auth/google/native (móvil)
-GOOGLE_NATIVE_AUDIENCES=274719...-xxxxx.apps.googleusercontent.com
-
-# Web Push (opcional — si no, se autogenera y persiste a data/vapid_keys.json)
 VAPID_PUBLIC_KEY=...
 VAPID_PRIVATE_KEY=...
 VAPID_SUBJECT=mailto:tu@email.com
+```
 
-# Passkeys (opcional — fallback al hostname de APP_URL si vacíos)
+### Passkeys / WebAuthn
+
+Funcionan solas en local (el hostname `localhost` cuenta como
+contexto seguro para el navegador). Si quieres ajustar el RP
+explícitamente:
+```bash
 WEBAUTHN_RP_ID=alfred.example.com
 WEBAUTHN_ORIGIN=https://alfred.example.com
 WEBAUTHN_RP_NAME=Alfred
-
-# FCM — legado del cliente Android nativo descartado. Déjalo sin
-# configurar; el backend desactiva FCM silenciosamente si el JSON
-# no existe.
-# FCM_SERVICE_ACCOUNT_JSON_PATH=data/fcm_service_account.json
 ```
+Si los dejas vacíos, el backend cae al hostname de `APP_URL`.
 
-### Despliegue público con dominio + TLS
+### Variables del `backend/.env` (referencia completa)
 
-`deploy/deploy.sh` automatiza el setup:
+`backend/.env.example` las lista todas con comentarios. Las
+relevantes:
 
 ```bash
-sudo bash deploy/deploy.sh   # usa ALFRED_DIR=/opt/alfred por defecto
+JWT_SECRET=<openssl rand -hex 32>                  # obligatoria
+DATABASE_URL=sqlite+aiosqlite:///./data/alfred.db  # default OK
+APP_URL=http://localhost:30004                     # backend público
+FRONTEND_URL=http://localhost:30005                # SPA pública
+CORS_ORIGINS=http://localhost:30005                # coma-separados
+CORS_ORIGIN_REGEX=^https://.*\.tail.*\.ts\.net$    # opcional (Tailscale)
+
+GOOGLE_CLIENT_ID=                                  # opcional
+GOOGLE_CLIENT_SECRET=                              # opcional
+GOOGLE_NATIVE_AUDIENCES=                           # opcional (cliente móvil)
+
+WEBAUTHN_RP_ID=                                    # opcional
+WEBAUTHN_ORIGIN=                                   # opcional
+WEBAUTHN_RP_NAME=Alfred                            # opcional
+
+# FCM_SERVICE_ACCOUNT_JSON_PATH=data/fcm_service_account.json  # legacy, ignorar
 ```
 
-El script: valida DNS, instala/recarga el vhost nginx, pide cert Let's Encrypt vía webroot, levanta el stack y hace smoke test.
+---
+
+## 🌐 Despliegue público (dominio + HTTPS)
+
+Para sacar Alfred a internet con tu propio dominio. Necesitas:
+una VPS Linux, un dominio apuntado a su IP, nginx + certbot.
+
+```bash
+# 1. Clonar en /opt/alfred (o donde quieras)
+sudo git clone https://github.com/diegosuarez/alfred.git /opt/alfred
+cd /opt/alfred
+
+# 2. Crear backend/.env con JWT_SECRET y (opcional) credenciales de Google
+sudo cp backend/.env.example backend/.env
+sudo $EDITOR backend/.env
+
+# 3. Lanzar el deploy idempotente
+sudo ALFRED_DOMAIN=alfred.tudominio.com \
+     LE_EMAIL=tu@email.com \
+     bash deploy/deploy.sh
+```
+
+El script:
+- valida el DNS,
+- renderiza `deploy/nginx/alfred.conf` con tu dominio,
+- pide cert Let's Encrypt vía webroot,
+- ajusta `APP_URL` / `FRONTEND_URL` / `CORS_*` en tu `.env`,
+- levanta el `docker compose`,
+- hace smoke test.
+
+Re-ejecutable cuantas veces quieras. Para que arranque al
+reiniciar la máquina, instala el systemd unit:
+
+```bash
+sudo bash systemd/install.sh
+sudo systemctl enable --now alfred
+```
+
+Variables opcionales: `ALFRED_DIR` (default `/opt/alfred`),
+`ALFRED_SSL_CERT_DIR` (apuntar a un wildcard existente en lugar
+de pedir cert por dominio).
 
 ---
 
@@ -289,15 +402,6 @@ docker compose restart backend
 ```
 
 Después re-acepta las notificaciones en el navegador. El backend genera la nueva clave en formato base64url DER PKCS8 (a prueba de cambios entre versiones de py_vapid).
-
-### Despliegue con systemd
-
-```bash
-sudo bash systemd/install.sh
-sudo systemctl status alfred
-```
-
-La unit hace `docker compose up -d` sobre la raíz del proyecto.
 
 ---
 
