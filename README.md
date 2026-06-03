@@ -1,9 +1,8 @@
 # Alfred 🎯
 
-**Alfred** es un gestor personal de tareas (kanban + recordatorios + foco) pensado para usar uno mismo, sin equipos, sin SaaS. Tres clientes hablan con el mismo backend:
+**Alfred** es un gestor personal de tareas (kanban + recordatorios + foco) pensado para usar uno mismo, sin equipos, sin SaaS. Dos clientes hablan con el mismo backend:
 
-- **Web SPA** (React + Vite) — la interfaz principal.
-- **App Android nativa** (Kotlin + Jetpack Compose) — desbloqueo con huella, notificaciones push FCM.
+- **Web SPA instalable** (React + Vite + PWA) — la interfaz principal. Se puede instalar como app desde Chrome / Edge / Safari en escritorio y móvil; Web Push para recordatorios funciona con la pestaña cerrada.
 - **CLI `alfred`** (Python + Typer) — automatización, scripting, agentes IA.
 
 Despliegue en Docker o detrás de Tailscale. Autenticación con Google, email/contraseña, **passkeys** (WebAuthn) o Personal Access Tokens.
@@ -31,7 +30,7 @@ Despliegue en Docker o detrás de Tailscale. Autenticación con Google, email/co
 
 ### Recordatorios y notificaciones
 - **Web Push** con VAPID + Service Worker. Las claves VAPID se persisten como **base64url DER PKCS8** (formato a prueba de cambios de py_vapid) en `data/vapid_keys.json` y se autogeneran si no existen.
-- **FCM** para la app Android. El dispatcher fan-outs a Web Push **y** FCM en paralelo; un sub muerto no impide la entrega al resto.
+- El dispatcher es robusto: una suscripción muerta no impide la entrega al resto. Mantiene también un canal opcional FCM (legado del cliente Android nativo, ahora descartado — el código sigue en el backend por si vuelve un cliente móvil).
 - Recordatorios con presets ("dentro de X minutos", "mañana 09:00") o picker custom. Funcionan cross-device: lo creas en cualquier cliente, llega a todos los demás.
 
 ### Adjuntos
@@ -40,22 +39,25 @@ Despliegue en Docker o detrás de Tailscale. Autenticación con Google, email/co
 - Almacenamiento local en `data/attachments/<uuid>.<ext>`. Cap 15 MB por archivo.
 
 ### Foco / Estadísticas
-- Pomodoro (15/25/50 min) vinculado a tarea concreta. En web es un floating overlay minimizable; en móvil pantalla dedicada con countdown circular.
-- Estadísticas: tiempo total + sesiones completadas + gráfica de barras diarias. Aggregadas server-side, **consistentes entre dispositivos**.
+- Pomodoro (15/25/50 min) vinculado a tarea concreta. Floating overlay minimizable.
+- Estadísticas: tiempo total + sesiones completadas + gráfica de barras diarias. Agregadas server-side, **consistentes entre dispositivos**.
 
 ### Autenticación
 - **Email + contraseña local** (bcrypt + JWT).
-- **OAuth2 con Google** en web (sign-in + connect-additional-account).
-- **Google Sign-In nativo** en Android (Credential Manager + verificación de ID token en backend).
-- **Passkeys / WebAuthn** en web (discoverable credentials — sin email; el navegador ofrece directamente las passkeys registradas).
-- **Desbloqueo con huella** en Android (JWT cifrado con AES-GCM bajo clave biométrica del Android Keystore).
+- **OAuth2 con Google** (sign-in + connect-additional-account).
+- **Passkeys / WebAuthn** (discoverable credentials — sin email; el navegador ofrece directamente las passkeys registradas).
 - **Personal Access Tokens** (`alfred_pat_*`) para clientes headless (CLI, automations, agentes IA).
 - **Auto-redirect a login al caducar sesión**: cualquier 401 mid-session en endpoints autenticados limpia el token y vuelve al formulario, sin pantallas zombies ni hard refresh.
 
+### Instalable como PWA
+- Manifest + Service Worker hacen que el SPA se instale como app desde la barra de direcciones de Chrome / Edge (escritorio o móvil) y "Add to Home Screen" en Safari.
+- Web Push entrega recordatorios incluso con la pestaña cerrada.
+
 ### Productividad
-- **Quick Capture** con `Alt + Q` desde cualquier pantalla (web).
+- **Quick Capture** con `Alt + Q` para crear una tarea desde cualquier pantalla.
 - **Auto-save** del modal de tarea (sin botón "Guardar"); `Ctrl/Cmd + Enter` confirma y cierra.
 - **Esc** cierra cualquier diálogo.
+- **Back del navegador integrado**: la flecha atrás / gesto edge-swipe en Chrome mueven entre contextos y tableros previos en lugar de salir del SPA.
 - Avatar + nombre real del usuario en la sidebar, tomados del primer Google account conectado (fallback al email).
 
 ---
@@ -76,17 +78,9 @@ Despliegue en Docker o detrás de Tailscale. Autenticación con Google, email/co
 - **React 19**, **Vite 8**, **TypeScript** estricto.
 - **CSS vanilla** (variables HSL + glassmorphism).
 - **react-markdown** + **remark-gfm** para descripciones.
-- **Service Worker** en `frontend/public/sw.js` (Web Push + clic en notificación).
+- **Service Worker** en `frontend/public/sw.js` (Web Push + clic en notificación + fetch passthrough para installability).
+- **PWA**: `frontend/public/manifest.webmanifest` + iconos 192/512px.
 - **WebAuthn helpers** propios en `src/services/webauthn.ts` (base64url ↔ ArrayBuffer + flujos).
-
-### Android
-- **Kotlin 2.0**, **Jetpack Compose** (BOM 2024.12, Material 3), **min SDK 26 / target 35**.
-- **Retrofit 2** + **OkHttp** + **kotlinx-serialization** para HTTP.
-- **DataStore** para preferencias (URL, token, defaults).
-- **Coil 3** para imágenes (con bearer token vía hook custom).
-- **Firebase Messaging** + **Credential Manager + googleid** para FCM y Google Sign-In nativo.
-- **androidx.biometric** + Android Keystore para desbloqueo con huella.
-- **compose-markdown** (`jeziellago/compose-markdown` vía JitPack) para Markdown.
 
 ### CLI
 - **Python 3.11+**, **uv**, **Typer**, **httpx**, **questionary** (pickers), **tomli-w**.
@@ -112,16 +106,11 @@ alfred/
 │   ├── data/               SQLite + attachments + vapid_keys.json + fcm_service_account.json (gitignored)
 │   ├── scripts/            Mantenimiento (cleanup_google_contacts.py)
 │   └── tests/              124 tests (pytest-asyncio)
-├── frontend/               React + Vite SPA
+├── frontend/               React + Vite SPA (PWA)
 │   ├── src/components/     Sidebar, KanbanBoard, Auth, TokensSettings, ...
 │   ├── src/hooks/          useEscapeKey, useAuthedImage
 │   ├── src/services/       api.ts (single-origin /api/*), webauthn.ts, push.ts
-│   └── public/sw.js        Service Worker (Web Push)
-├── android/                App nativa Kotlin + Compose
-│   ├── Dockerfile          Builder reproducible del APK
-│   ├── app/                Módulo Android (manifest, res, kotlin/, build.gradle.kts)
-│   ├── docker-entrypoint.sh
-│   └── README.md           Detalle del setup Firebase + Google + SHA-1
+│   └── public/             manifest.webmanifest + sw.js + logo-{192,512}.png
 ├── cli/                    Cliente CLI (uv project)
 │   ├── pyproject.toml
 │   ├── src/alfred_cli/
@@ -185,8 +174,10 @@ WEBAUTHN_RP_ID=alfred.example.com
 WEBAUTHN_ORIGIN=https://alfred.example.com
 WEBAUTHN_RP_NAME=Alfred
 
-# FCM (sólo si quieres push al móvil — descarga del Firebase Console)
-FCM_SERVICE_ACCOUNT_JSON_PATH=data/fcm_service_account.json
+# FCM — legado del cliente Android nativo descartado. Déjalo sin
+# configurar; el backend desactiva FCM silenciosamente si el JSON
+# no existe.
+# FCM_SERVICE_ACCOUNT_JSON_PATH=data/fcm_service_account.json
 ```
 
 ### Despliegue público con dominio + TLS
@@ -210,13 +201,6 @@ Cinco formas en la web:
 3. **Passkeys / WebAuthn**: en "Tokens API → Passkeys" registras una; en la pantalla de login pulsas "🔐 Entrar con passkey". El navegador te ofrece las passkeys de este dispositivo, autenticas con biometría/PIN, el backend verifica la firma y emite el JWT. Sin email previo.
 4. **Personal Access Tokens** (`alfred_pat_*`) para clientes headless.
 5. **Sesión persistente** (JWT en `localStorage`). Caduca a las 24h; en cualquier 401 mid-session, el SPA vuelve automáticamente al login.
-
-Cuatro formas en Android:
-
-1. **PAT** (más rápido para empezar).
-2. **Email + contraseña**.
-3. **Google Sign-In nativo** (Credential Manager → ID token → `/api/auth/google/native`).
-4. **Desbloqueo con huella** tras un primer login. El JWT se cifra con AES-GCM bajo una clave del Android Keystore con `setUserAuthenticationRequired(true)`. Si la huella se invalida (añades/quitas una), Android revoca la clave y se cae al login manual.
 
 ---
 
@@ -248,32 +232,17 @@ El CLI ignora certs self-signed por defecto (`verify_ssl = false` en `cli/config
 
 ---
 
-## 📱 App Android
+## 📱 Instalar como app
 
-Ver `android/README.md` para los pasos de Firebase, SHA-1 y Google Cloud.
+El frontend es una PWA. Con la web abierta:
 
-```bash
-cd android
-docker build -f Dockerfile -t alfred-android-build .
-docker run --rm -v "$PWD:/work" -u "$(id -u):$(id -g)" alfred-android-build
-# APK en android/app/build/outputs/apk/debug/app-debug.apk
-```
+- **Chrome / Edge** (escritorio o móvil): icono "Instalar" en la barra de direcciones → "Instalar Alfred". Queda como app nativa con su propio dock/launcher.
+- **Safari iOS / iPadOS**: botón Compartir → "Añadir a pantalla de inicio".
+- **Firefox móvil**: menú ⋯ → "Instalar".
 
-Configuración crítica:
+Notificaciones push funcionan con la pestaña cerrada gracias al Service Worker (acepta el prompt cuando salga, o lánzalo desde Perfil → tu primer recordatorio).
 
-- `android/local.properties` (gitignored): `google.webClientId=...` (Web client del proyecto Firebase) y `alfred.apiUrl=https://...`.
-- `android/app/google-services.json`: descargado de Firebase Console.
-- `backend/data/fcm_service_account.json`: descargado de Firebase Service Accounts.
-
-La app incluye:
-- Login (PAT / email / Google nativo / desbloqueo huella).
-- Drawer con contextos coloreados; cambiar contexto re-tinta el fondo.
-- Tableros con icono + descripción.
-- Lista de tareas con tabs por columna, search bar, barra vertical de prioridad, cover image, avatars apilados, badges (subtareas, recordatorios, adjuntos, fecha).
-- Detalle: editar título / Markdown / prioridad / tags / requester / assignees / recordatorios / subir adjunto / mover de tablero / archivar / borrar.
-- Pomodoro con countdown circular y stats con barras diarias.
-- Perfil: gestión de PATs + cuentas Google (sincronizar contactos, desconectar, conectar nueva).
-- FCM: registro automático del token, notificaciones push al recibir recordatorios.
+> Hubo una app Android nativa en una rama anterior; quedó descartada porque la PWA cubre el caso de uso con bastante menos mantenimiento.
 
 ---
 
@@ -320,24 +289,6 @@ docker compose restart backend
 ```
 
 Después re-acepta las notificaciones en el navegador. El backend genera la nueva clave en formato base64url DER PKCS8 (a prueba de cambios entre versiones de py_vapid).
-
-### FCM no llega al móvil
-
-Comprueba en orden:
-
-```bash
-ls -la /opt/alfred/backend/data/fcm_service_account.json   # debe existir y ser JSON válido
-head -c 1 /opt/alfred/backend/data/fcm_service_account.json
-# debería imprimir '{' — si imprime otra cosa, descarga otra vez
-
-docker compose exec backend uv run python -c "
-import sqlite3; db = sqlite3.connect('/app/data/alfred.db')
-print(list(db.execute('SELECT id, user_id, device_label FROM fcm_subscriptions')))
-"
-# Si vacío, la app no llegó a registrar su token: abre la app logueado y mira logs.
-
-docker compose logs backend --since 5m | grep -iE "reminder|fcm|push"
-```
 
 ### Despliegue con systemd
 
