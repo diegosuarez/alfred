@@ -11,6 +11,16 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+// Minimal fetch handler — needed for Chrome / Edge to consider the app
+// installable as a PWA. We don't cache anything (the app is online-only
+// today; the live API responses would go stale fast), but having the
+// listener satisfies the "controlled by a service worker" check.
+self.addEventListener('fetch', (event) => {
+  // Let the browser handle the request normally. Returning nothing from
+  // this listener is the same as not intercepting.
+  event.respondWith(fetch(event.request));
+});
+
 self.addEventListener('push', (event) => {
   console.log('[Alfred SW] push event received', event);
   let data = {};
