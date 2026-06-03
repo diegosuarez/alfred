@@ -601,12 +601,10 @@ export const App: React.FC = () => {
             }}
             externalTaskFocus={externalTaskFocus}
             allBoards={boards}
-            onTaskMovedToBoard={(newBoardId) => {
-              // Jump to the destination board so the user lands where
-              // the task is now living. The KanbanBoard remounts via
-              // its key and fetches fresh state.
-              setActiveBoardId(newBoardId);
-            }}
+            // Intentionally NOT switching to the destination board: the
+            // user expects the source board to keep working after the
+            // move. KanbanBoard refreshes its own state so the moved
+            // card disappears from the current view.
           />
         )}
         {currentView === 'stats' && (

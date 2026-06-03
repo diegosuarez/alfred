@@ -98,7 +98,6 @@ interface KanbanBoardProps {
   /** Every board the user owns, so the task modal can offer a
    * "move to another board" picker filtered by the current context. */
   allBoards?: BoardSummary[];
-  onTaskMovedToBoard?: (newBoardId: number) => void;
 }
 
 export const KanbanBoard: React.FC<KanbanBoardProps> = ({
@@ -107,7 +106,6 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
   onRemindersChanged,
   externalTaskFocus,
   allBoards = [],
-  onTaskMovedToBoard,
 }) => {
   const [board, setBoard] = useState<BoardDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -589,14 +587,13 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
         moveTargetBoardId,
         moveTargetColumnId,
       );
-      const targetId = moveTargetBoardId;
       setSelectedTask(null);
       setShowMovePicker(false);
       setMoveTargetBoardId(null);
       setMoveTargetColumnId(null);
       setMoveTargetColumns([]);
-      if (onTaskMovedToBoard) onTaskMovedToBoard(targetId);
-      else fetchBoardDetails();
+      // Stay on the current board — refresh so the moved card disappears.
+      fetchBoardDetails();
     } catch (err: any) {
       alert(err.message);
     }
@@ -674,8 +671,8 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
         return;
       }
       await api.moveTaskToBoard(taskId, boardId, firstCol.id);
-      if (onTaskMovedToBoard) onTaskMovedToBoard(boardId);
-      else fetchBoardDetails();
+      // Stay put — just refresh the current board.
+      fetchBoardDetails();
     } catch (err: any) {
       alert(err.message);
     }
