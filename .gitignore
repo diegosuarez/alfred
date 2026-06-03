@@ -29,6 +29,11 @@ data/
 *.key
 *.pem
 
+# Firebase / FCM (leak Firebase API key + service account if published)
+google-services.json
+**/google-services.json
+**/fcm_service_account*.json
+
 # CodeGraph
 .codegraph/
 
