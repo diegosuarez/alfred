@@ -1,4 +1,8 @@
-# Alfred 🎯
+<p align="center">
+  <img src="frontend/public/logo.png" alt="Alfred" width="160" />
+</p>
+
+<h1 align="center">Alfred 🎯</h1>
 
 **Alfred** es un gestor personal de tareas (kanban + recordatorios + foco) pensado para usar uno mismo, sin equipos, sin SaaS. Dos clientes hablan con el mismo backend:
 
@@ -454,4 +458,4 @@ GET    /api/pats                      POST   /api/pats             DELETE /api/p
 
 ## 📝 Licencia
 
-Personal — un solo usuario, sin compromisos de soporte. Úsalo, fórkalo, rómpelo.
+Personal — un solo usuario, sin compromisos de soporte. Úsalo, haz fork, rómpelo.
