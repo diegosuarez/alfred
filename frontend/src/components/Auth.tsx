@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { api, setToken } from '../services/api';
 import { signInWithPasskey, supportsWebAuthn } from '../services/webauthn';
 
@@ -12,6 +12,29 @@ export const Auth: React.FC<AuthProps> = ({ onLoginSuccess }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  // null = unknown yet (don't render the toggle until we know); the
+  // backend exposes /auth/registration-status as a public endpoint
+  // precisely so the SPA can hide the "Sign up" UI when self-service
+  // registration is closed.
+  const [registrationOpen, setRegistrationOpen] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    api.registrationStatus()
+      .then((s) => setRegistrationOpen(s.open))
+      // If the status probe itself fails (network blip), default to
+      // closed — safer than offering a form that will 403 anyway.
+      .catch(() => setRegistrationOpen(false));
+    // Surface the redirect-time error from the Google callback when a
+    // stranger tries to sign in on a closed server.
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('oauth_error') === 'registration_closed') {
+      setError(
+        'El registro está cerrado en este servidor. Pide a quien lo administra que te dé acceso.',
+      );
+      url.searchParams.delete('oauth_error');
+      window.history.replaceState({}, '', url.toString());
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -119,12 +142,19 @@ export const Auth: React.FC<AuthProps> = ({ onLoginSuccess }) => {
           </button>
         )}
 
-        <div style={styles.switchText}>
-          {isRegister ? '¿Ya tienes una cuenta?' : '¿No tienes una cuenta?'}{' '}
-          <span style={styles.switchLink} onClick={() => setIsRegister(!isRegister)}>
-            {isRegister ? 'Inicia sesión' : 'Regístrate aquí'}
-          </span>
-        </div>
+        {registrationOpen && (
+          <div style={styles.switchText}>
+            {isRegister ? '¿Ya tienes una cuenta?' : '¿No tienes una cuenta?'}{' '}
+            <span style={styles.switchLink} onClick={() => setIsRegister(!isRegister)}>
+              {isRegister ? 'Inicia sesión' : 'Regístrate aquí'}
+            </span>
+          </div>
+        )}
+        {registrationOpen === false && (
+          <div style={styles.switchText}>
+            El registro está cerrado en este servidor.
+          </div>
+        )}
       </div>
     </div>
   );

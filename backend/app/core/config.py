@@ -40,5 +40,13 @@ class Settings:
     APP_URL: str = os.getenv("APP_URL", "http://localhost:30000")
     FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:30001")
 
+    # Self-registration gate. Alfred is a personal tool, so by default the
+    # /api/auth/register endpoint refuses new signups: existing users can
+    # still log in, Google sign-in still attaches new accounts (assuming
+    # the operator wants that), but the public form is closed. Flip to
+    # "true" to open registration — e.g. on your laptop while bootstrapping
+    # the first user, then flip back.
+    REGISTRATION_OPEN: bool = os.getenv("REGISTRATION_OPEN", "false").lower() == "true"
+
 
 settings = Settings()

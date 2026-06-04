@@ -1,4 +1,12 @@
+import os
 from typing import AsyncIterator
+
+# Settings are read at import time (config.py raises if JWT_SECRET is
+# missing). Provide deterministic test values BEFORE the app modules
+# are imported below. REGISTRATION_OPEN is opt-in for the suite — the
+# auth fixture registers a fresh user on every test.
+os.environ.setdefault("JWT_SECRET", "test-only-not-for-production-use")
+os.environ.setdefault("REGISTRATION_OPEN", "true")
 
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport

@@ -1,4 +1,7 @@
+import pytest
 from httpx import AsyncClient
+
+from app.core.config import settings
 
 
 async def test_register_creates_user(client: AsyncClient) -> None:
@@ -70,3 +73,27 @@ async def test_login_wrong_password_rejected(client: AsyncClient) -> None:
 async def test_protected_endpoint_requires_token(client: AsyncClient) -> None:
     resp = await client.get("/api/boards")
     assert resp.status_code == 401
+
+
+async def test_registration_status_reflects_setting(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    resp = await client.get("/api/auth/registration-status")
+    assert resp.status_code == 200
+    assert resp.json() == {"open": True}
+
+    monkeypatch.setattr(settings, "REGISTRATION_OPEN", False)
+    resp = await client.get("/api/auth/registration-status")
+    assert resp.json() == {"open": False}
+
+
+async def test_register_blocked_when_closed(
+    client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "REGISTRATION_OPEN", False)
+    resp = await client.post(
+        "/api/auth/register",
+        json={"email": "stranger@example.com", "password": "longenough"},
+    )
+    assert resp.status_code == 403
+    assert "closed" in resp.json()["detail"].lower()

@@ -50,8 +50,28 @@ def verify_oauth_state(state: str, cookie_state: str | None) -> dict:
     except BadSignature:
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
 
+def _require_registration_open() -> None:
+    """Self-registration is gated behind REGISTRATION_OPEN so a publicly
+    reachable Alfred doesn't grow strangers' accounts. Existing users
+    keep logging in normally; only the create-new-user paths are
+    affected."""
+    if not settings.REGISTRATION_OPEN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Registration is closed on this server.",
+        )
+
+
+@router.get("/registration-status")
+async def registration_status() -> dict:
+    """Lets the SPA decide whether to render the 'Sign up' UI and whether
+    a Google sign-in could land a new user (vs. only existing ones)."""
+    return {"open": settings.REGISTRATION_OPEN}
+
+
 @router.post("/register", response_model=UserResponse)
 async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
+    _require_registration_open()
     # Check if email is already taken
     result = await db.execute(select(User).filter(User.email == user_in.email))
     existing_user = result.scalars().first()
@@ -60,7 +80,7 @@ async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="The user with this email already exists."
         )
-        
+
     db_user = User(
         email=user_in.email,
         hashed_password=get_password_hash(user_in.password)
@@ -119,6 +139,10 @@ async def google_native(
         await db.execute(select(User).filter(User.email == email))
     ).scalars().first()
     if not user:
+        # Google sign-in is also a registration vector — gate it the
+        # same way the email/password flow is gated, otherwise opening
+        # Google auth on a public deploy silently re-opens signups.
+        _require_registration_open()
         user = User(email=email, hashed_password=None)
         db.add(user)
         await db.flush()
@@ -228,7 +252,12 @@ async def google_callback(
             await db.execute(select(User).filter(User.email == email))
         ).scalars().first()
         if not user:
-            # First Google login from an unknown email creates a passwordless User.
+            # First Google login from an unknown email would create a
+            # passwordless User — i.e. a backdoor registration when the
+            # email/password form is closed. Honor REGISTRATION_OPEN here
+            # too and surface the error back to the SPA via the redirect.
+            if not settings.REGISTRATION_OPEN:
+                return _frontend_redirect(error="registration_closed")
             user = User(email=email, hashed_password=None)
             db.add(user)
             await db.flush()

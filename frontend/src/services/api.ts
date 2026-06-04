@@ -66,11 +66,14 @@ async function request(endpoint: string, options: RequestInit = {}) {
 
 export const api = {
   // Auth
-  register: (email: string, password: string) => 
+  register: (email: string, password: string) =>
     request('/auth/register', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     }),
+
+  registrationStatus: (): Promise<{ open: boolean }> =>
+    request('/auth/registration-status'),
 
   login: async (email: string, password: string) => {
     const formData = new FormData();
