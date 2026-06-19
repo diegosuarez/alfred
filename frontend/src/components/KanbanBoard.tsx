@@ -1444,6 +1444,12 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
                     <div
                       className="glass-panel"
                       style={styles.colMenu}
+                      // The outside-click closer listens on `mousedown` (so
+                      // it fires before the button's onClick). Without
+                      // stopping mousedown here, the menu unmounts before
+                      // the click reaches our buttons and the handlers
+                      // never run.
+                      onMouseDown={(e) => e.stopPropagation()}
                       onClick={(e) => e.stopPropagation()}
                     >
                       <button
