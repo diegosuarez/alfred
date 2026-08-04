@@ -15,9 +15,14 @@ chat, English for code/docs/commits).
   manager; view state lives in `src/App.tsx`.
 - **Persistence**: SQLite. Schema is created on startup via
   `Base.metadata.create_all` (no migrations).
-- **Container**: `docker-compose.yml` at the repo root. Backend mapped
-  to host `30004`, frontend to host `30005`. Bind mounts give hot
-  reload.
+- **Container**: `docker-compose.yml` at the repo root is the
+  **production** stack — code baked into the images, only
+  `backend/data` bind-mounted. Backend mapped to host `30004`,
+  frontend to host `30005`. Layer `docker-compose.dev.yml` on top for
+  hot reload (bind mounts + Vite dev server + `--reload`). The dev
+  overrides are deliberately NOT in `docker-compose.override.yml`,
+  which Compose would apply implicitly and put deployments back into
+  dev mode.
 - **Auth**: email + password (bcrypt + JWT bearer) AND Google OAuth2.
   Login routes coexist; a Google-first user has hashed_password NULL.
   Once logged in, a user may also connect additional Google accounts
@@ -25,10 +30,10 @@ chat, English for code/docs/commits).
 
 ## Ports (host-facing)
 
-| Service  | Host port | Container port |
-| -------- | --------- | -------------- |
-| backend  | 30004     | 8000           |
-| frontend | 30005     | 5173           |
+| Service  | Host port | Container port          |
+| -------- | --------- | ----------------------- |
+| backend  | 30004     | 8000                    |
+| frontend | 30005     | 80 (5173 in dev)        |
 
 Per `~/.claude/CLAUDE.md`, host-facing ports stay at ≥ 30000.
 
@@ -162,12 +167,23 @@ and `fetch_userinfo`. State validation is exercised directly.
 ### Whole stack via Docker
 
 ```bash
+# Development — hot reload on both services.
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+
+# Production shape — static SPA behind nginx, no source mounts.
 docker compose up --build
+
 # Frontend: http://localhost:30005
 # Backend:  http://localhost:30004  (Swagger at /docs)
 ```
 
-The SQLite DB lives at `backend/data/alfred.db` on the host (bind mounted).
+The SQLite DB lives at `backend/data/alfred.db` on the host (bind
+mounted in both modes), together with attachments and the VAPID/FCM
+keys. Nothing else in the tree is state.
+
+Production serves `frontend/dist` from nginx inside the container
+(`frontend/nginx.conf`), so `npm run build` — and with it `tsc -b` —
+has to pass before a deploy. The dev server does not type-check.
 
 ### Backend only, without Docker
 

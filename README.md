@@ -174,7 +174,7 @@ docker compose up --build
 ```
 
 La primera vez tarda 1-2 minutos compilando las imágenes.
-Cuando veas `Application startup complete` y `VITE … ready`, abre:
+Cuando veas `Application startup complete`, abre:
 
 **👉 http://localhost:30005**
 
@@ -183,15 +183,37 @@ ya estás dentro. Crea tu primer tablero y a usarlo.
 
 | Servicio   | URL                          | Puerto contenedor |
 |------------|------------------------------|-------------------|
-| Frontend   | http://localhost:30005       | 5173 (Vite dev)   |
+| Frontend   | http://localhost:30005       | 80 (nginx)        |
 | Backend    | http://localhost:30004       | 8000 (FastAPI)    |
 | Swagger    | http://localhost:30004/docs  | 8000              |
 
-El SPA habla con `/api/*` en el mismo origen vía proxy de Vite —
-cookies y CORS funcionan solos.
+El SPA habla con `/api/*` en el mismo origen: el nginx del contenedor
+proxya esas rutas al backend, así que cookies y CORS funcionan solos.
 
 Para parar: `Ctrl+C` y luego `docker compose down`. Tus datos
-viven en `backend/data/alfred.db` (gitignored).
+viven en `backend/data/` (gitignored): la base SQLite, los adjuntos y
+las claves VAPID/FCM.
+
+### 4. Desarrollo, con hot reload
+
+`docker-compose.yml` es el stack de **producción**: el código va dentro
+de las imágenes y solo se monta `backend/data`. Para trabajar en el
+código, añade las sobrecargas de desarrollo:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+```
+
+Eso monta el árbol de fuentes, arranca uvicorn con `--reload` y sirve el
+frontend con el dev server de Vite en el 5173 del contenedor.
+
+> ⚠️ El dev server de Vite **no debe exponerse a Internet**: sirve todo
+> el árbol de fuentes (incluidos `Dockerfile`, `vite.config.ts` y
+> `src/`) e interpreta como módulos JS cualquier ruta sin extensión. Por
+> eso las sobrecargas viven en `docker-compose.dev.yml` y no en
+> `docker-compose.override.yml`, que Compose aplicaría por su cuenta.
+> Además, el dev server no comprueba tipos: pasa `npm run build` (que
+> ejecuta `tsc -b`) antes de desplegar.
 
 ---
 
@@ -295,8 +317,12 @@ El script:
 - levanta el `docker compose`,
 - hace smoke test.
 
-Re-ejecutable cuantas veces quieras. Para que arranque al
-reiniciar la máquina, instala el systemd unit:
+Re-ejecutable cuantas veces quieras. Si ya tienes un vhost que sirve
+ese dominio, o has editado a mano el que instaló el script, **no lo
+sobrescribe**: avisa y sigue, para que integres el cambio tú. Fuerza el
+reemplazo con `ALFRED_FORCE_NGINX=1` si de verdad lo quieres.
+
+Para que arranque al reiniciar la máquina, instala el systemd unit:
 
 ```bash
 sudo bash systemd/install.sh
@@ -305,7 +331,8 @@ sudo systemctl enable --now alfred
 
 Variables opcionales: `ALFRED_DIR` (default `/opt/alfred`),
 `ALFRED_SSL_CERT_DIR` (apuntar a un wildcard existente en lugar
-de pedir cert por dominio).
+de pedir cert por dominio), `ALFRED_FORCE_NGINX=1` (sobrescribir un
+vhost modificado a mano).
 
 ---
 
