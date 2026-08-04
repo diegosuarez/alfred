@@ -79,8 +79,12 @@ fi
 # In-place edits, idempotent. Adds keys when absent.
 upsert_env() {
     local key="$1" val="$2"
+    # sed eats backslashes and expands & in the replacement text, which would
+    # silently mangle regex values like CORS_ORIGIN_REGEX. Escape both first.
+    local esc="${val//\\/\\\\}"
+    esc="${esc//&/\\&}"
     if grep -q "^${key}=" "$ENV_FILE"; then
-        sed -i "s|^${key}=.*|${key}=${val}|" "$ENV_FILE"
+        sed -i "s|^${key}=.*|${key}=${esc}|" "$ENV_FILE"
     else
         printf '%s=%s\n' "$key" "$val" >> "$ENV_FILE"
     fi
@@ -99,14 +103,41 @@ echo "    FRONTEND_URL=https://${DOMAIN}"
 # ---------------------------------------------------------------------------
 log "Installing nginx vhost"
 # ---------------------------------------------------------------------------
-# Render the template with the target domain + cert directory and drop it
-# under sites-available. `__DOMAIN__` / `__SSL_CERT_DIR__` are the only
-# placeholders; everything else is reusable as-is.
+# Render the template with the target domain + cert directory. `__DOMAIN__` /
+# `__SSL_CERT_DIR__` are the only placeholders; everything else is reusable.
+RENDERED="$(mktemp)"
+trap 'rm -f "$RENDERED"' EXIT
 sed -e "s|__DOMAIN__|${DOMAIN}|g" \
     -e "s|__SSL_CERT_DIR__|${SSL_CERT_DIR}|g" \
-    "$NGINX_TEMPLATE" > "$NGINX_SITE"
-chmod 0644 "$NGINX_SITE"
-ln -sfn "$NGINX_SITE" "$NGINX_ENABLED"
+    "$NGINX_TEMPLATE" > "$RENDERED"
+
+# Another vhost may already answer for this domain — typically one edited by
+# hand to add extra hostnames or a wildcard certificate. Overwriting it, or
+# installing a second vhost with the same server_name, breaks the site, so
+# bail out and let the operator merge the change.
+CONFLICT="$(grep -rlE "^[[:space:]]*server_name[^;]*[[:space:]]${DOMAIN}([[:space:];]|$)" \
+    /etc/nginx/sites-enabled/ 2>/dev/null | grep -Fxv "$NGINX_ENABLED" || true)"
+if [[ -n "$CONFLICT" ]]; then
+    warn "Another enabled vhost already serves ${DOMAIN}:"
+    printf '     %s\n' $CONFLICT >&2
+    warn "Leaving nginx untouched. Merge deploy/nginx/alfred.conf into it by hand."
+elif [[ -f "$NGINX_SITE" ]] && ! cmp -s "$RENDERED" "$NGINX_SITE"; then
+    # Locally modified. Keep it unless the operator explicitly asks otherwise.
+    if [[ "${ALFRED_FORCE_NGINX:-0}" == "1" ]]; then
+        warn "Overwriting locally modified $NGINX_SITE (ALFRED_FORCE_NGINX=1)."
+        install -m 0644 "$RENDERED" "$NGINX_SITE"
+    else
+        warn "$NGINX_SITE differs from the template — keeping it."
+        warn "Diff it against deploy/nginx/alfred.conf, or re-run with ALFRED_FORCE_NGINX=1 to replace it."
+    fi
+else
+    install -m 0644 "$RENDERED" "$NGINX_SITE"
+fi
+# Only enable a vhost that actually exists — a dangling symlink in
+# sites-enabled makes `nginx -t` fail and takes every other site down.
+if [[ -f "$NGINX_SITE" ]]; then
+    ln -sfn "$NGINX_SITE" "$NGINX_ENABLED"
+fi
 mkdir -p /var/www/letsencrypt
 
 # ---------------------------------------------------------------------------
