@@ -1,0 +1,15 @@
+# Development image: Vite dev server with HMR. Wired up by
+# docker-compose.dev.yml, which bind-mounts the source over /app.
+#
+# Do NOT use this in a deployment. The dev server serves every file under its
+# root (source, Dockerfile, tsconfig, ...) and has no SPA fallback.
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm ci
+
+EXPOSE 5173
+
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

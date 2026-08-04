@@ -1,0 +1,12 @@
+# Never ship the host's install or a stale build into the image.
+node_modules
+dist
+dist-ssr
+
+# Not needed inside the build context.
+Dockerfile
+Dockerfile.dev
+.dockerignore
+README.md
+*.log
+.git

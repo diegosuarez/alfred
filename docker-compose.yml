@@ -1,3 +1,9 @@
+# Production stack. Code lives in the images; only mutable state is mounted.
+#
+# For local development with hot reload, layer the dev overrides on top:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+# The dev file is NOT named docker-compose.override.yml on purpose — Compose
+# would pick it up implicitly and quietly put deployments back into dev mode.
 services:
   backend:
     build:
@@ -6,8 +12,9 @@ services:
     ports:
       - "30004:8000"
     volumes:
-      - ./backend:/app
-      - /app/.venv
+      # State only: SQLite DB, task attachments, VAPID/FCM keys. Same host
+      # path the stack has always used, so nothing moves.
+      - ./backend/data:/app/data
     env_file:
       # Gitignored; holds Google OAuth credentials and other host-specific
       # overrides. Copy backend/.env.example to backend/.env to populate it.
@@ -17,20 +24,16 @@ services:
       - DATABASE_URL=sqlite+aiosqlite:////app/data/alfred.db
       # CORS_ORIGINS comes from backend/.env (see env_file above). The
       # backend falls back to localhost dev origins if it's unset.
-    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    # Static build served by nginx inside the container; it also proxies
+    # /api/ to the backend so the container works on its own.
     ports:
-      - "30005:5173"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    environment:
-      # Vite proxies /api/* to this URL during dev (see vite.config.ts).
-      - VITE_PROXY_TARGET=http://backend:8000
+      - "30005:80"
     depends_on:
       - backend
-    command: npm run dev -- --host 0.0.0.0
+    restart: unless-stopped

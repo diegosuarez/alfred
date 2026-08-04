@@ -1,0 +1,30 @@
+# Development overrides — hot reload for both services.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# Never layer this onto a deployment: it runs the Vite dev server, which
+# serves the entire source tree and has no SPA fallback.
+#
+# `!override` is required on ports/volumes: Compose merges those lists by
+# appending, so without it the frontend would try to publish 30005 twice.
+services:
+  backend:
+    volumes: !override
+      - ./backend:/app
+      # Shadow the host's virtualenv with the container's.
+      - /app/.venv
+    command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      dockerfile: Dockerfile.dev
+    ports: !override
+      - "30005:5173"
+    volumes: !override
+      - ./frontend:/app
+      # Shadow the host's node_modules with the container's.
+      - /app/node_modules
+    environment:
+      # Vite proxies /api/* to this URL during dev (see vite.config.ts).
+      - VITE_PROXY_TARGET=http://backend:8000
+    command: npm run dev -- --host 0.0.0.0
