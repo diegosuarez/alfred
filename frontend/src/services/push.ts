@@ -1,12 +1,16 @@
 import { api } from './api';
 
 /** Convert a URL-safe base64 string (no padding) to a Uint8Array — the
- * shape PushManager.subscribe wants for applicationServerKey. */
-function urlBase64ToUint8Array(b64url: string): Uint8Array {
+ * shape PushManager.subscribe wants for applicationServerKey.
+ *
+ * The `<ArrayBuffer>` argument is load-bearing: `applicationServerKey` takes a
+ * BufferSource, and a bare `Uint8Array` defaults to `Uint8Array<ArrayBufferLike>`,
+ * which could be backed by a SharedArrayBuffer and so doesn't satisfy it. */
+function urlBase64ToUint8Array(b64url: string): Uint8Array<ArrayBuffer> {
   const padding = '='.repeat((4 - (b64url.length % 4)) % 4);
   const base64 = (b64url + padding).replace(/-/g, '+').replace(/_/g, '/');
   const raw = atob(base64);
-  const out = new Uint8Array(raw.length);
+  const out = new Uint8Array(new ArrayBuffer(raw.length));
   for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
   return out;
 }

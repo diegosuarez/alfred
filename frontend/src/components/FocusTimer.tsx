@@ -20,7 +20,9 @@ export const FocusTimer: React.FC<FocusTimerProps> = ({
   const [minimized, setMinimized] = useState(false);
   const [finishedMessage, setFinishedMessage] = useState<string | null>(null);
 
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  // Browser timer handle — `NodeJS.Timeout` isn't in scope here (tsconfig.app
+  // only pulls in vite/client types), and the DOM signature returns a number.
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
 
   // Play a beautiful, gentle chime sound when timer finishes using Web Audio API (no external asset needed)
