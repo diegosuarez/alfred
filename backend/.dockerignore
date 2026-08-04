@@ -1,0 +1,24 @@
+# Runtime state — supplied by the ./backend/data bind mount. Keeping it out
+# of the image also keeps the SQLite DB, task attachments and the VAPID/FCM
+# keys from being baked into a layer.
+data/
+
+# Secrets. Settings are read from the process environment (env_file in
+# docker-compose.yml), never from a .env inside the image.
+.env
+.env.*
+!.env.example
+**/*.crt
+**/*.key
+**/*.pem
+
+# Host-only artifacts. Note dockerignore patterns do NOT recurse on their
+# own — `__pycache__/` would only match the top level, and stale bytecode
+# compiled on the host makes tracebacks point at host paths with no source.
+.venv/
+**/__pycache__
+**/*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+.git
