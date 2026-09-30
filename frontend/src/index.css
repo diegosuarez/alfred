@@ -1,6 +1,7 @@
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap');
 
 .mobile-context-switch {
+  touch-action: pan-y;
   position: absolute;
   top: 14px;
   left: 68px;
