@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { MobileContextSwitch } from './components/MobileContextSwitch';
 import { Auth } from './components/Auth';
 import { Sidebar } from './components/Sidebar';
 import { KanbanBoard } from './components/KanbanBoard';
@@ -64,6 +65,7 @@ export const App: React.FC = () => {
   // `poppingRef` keeps the push-effect from looping when popstate fires.
   const poppingRef = useRef(false);
   const historySeededRef = useRef(false);
+  const initialContextChosenRef = useRef(false);
 
   // Decodes JWT payload to extract user metadata
   const parseUserEmail = (token: string) => {
@@ -117,6 +119,16 @@ export const App: React.FC = () => {
 
       setContexts(finalContexts);
       setBoards(finalBoards);
+
+      // Start mobile in a concrete workspace when both primary contexts exist.
+      const work = finalContexts.find((ctx) => ctx.name.trim().toLocaleLowerCase('es') === 'trabajo');
+      const personal = finalContexts.find((ctx) => ctx.name.trim().toLocaleLowerCase('es') === 'personal');
+      if (!initialContextChosenRef.current && window.innerWidth < 768 && work && personal && activeContextId === null) {
+        const firstContextId = finalBoards[0]?.context_id;
+        setActiveContextId(firstContextId === personal.id ? personal.id : work.id);
+      }
+
+      initialContextChosenRef.current = true;
 
       if (activeBoardId === null && finalBoards.length > 0) {
         setActiveBoardId(finalBoards[0].id);
@@ -402,6 +414,7 @@ export const App: React.FC = () => {
     setIsAuthenticated(false);
     setUserEmail('');
     setContexts([]);
+    initialContextChosenRef.current = false;
     setActiveContextId(null);
     setBoards([]);
     setActiveBoardId(null);
@@ -546,6 +559,20 @@ export const App: React.FC = () => {
     }
   }
 
+  const primaryContexts = ['trabajo', 'personal'].map((name) =>
+    contexts.find((ctx) => ctx.name.trim().toLocaleLowerCase('es') === name),
+  );
+  const hasMobileContextSwitch = isMobile && primaryContexts.every((ctx) => ctx !== undefined);
+
+  const selectMobileContext = (id: number) => {
+    setActiveContextId(id);
+    // Select a board even when switching back from an empty context.
+    if (!boards.some((board) => board.id === activeBoardId && board.context_id === id)) {
+      setActiveBoardId(boards.find((board) => board.context_id === id)?.id ?? null);
+    }
+    setShowSidebar(false);
+  };
+
   // Dynamic mobile sidebar style
   const mobileSidebarStyle: React.CSSProperties = isMobile
     ? {
@@ -579,7 +606,16 @@ export const App: React.FC = () => {
         </button>
       )}
 
+      {hasMobileContextSwitch && (
+        <MobileContextSwitch
+          contexts={primaryContexts.filter((ctx): ctx is Context => ctx !== undefined)}
+          activeContextId={activeContextId}
+          onSelect={selectMobileContext}
+        />
+      )}
+
       <Sidebar
+        collapseContexts={hasMobileContextSwitch}
         contexts={contexts}
         activeContextId={activeContextId}
         onSelectContext={(id) => setActiveContextId(id)}
@@ -608,7 +644,7 @@ export const App: React.FC = () => {
 
       <main style={{
         ...styles.mainContent,
-        paddingTop: isMobile ? '60px' : '0px',
+        paddingTop: isMobile ? '76px' : '0px',
         ...(activeContextId !== null && (() => {
           const ctx = contexts.find((c) => c.id === activeContextId);
           if (!ctx?.color) return {};

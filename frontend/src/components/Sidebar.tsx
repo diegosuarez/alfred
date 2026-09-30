@@ -30,6 +30,7 @@ export const CONTEXT_COLORS = [
 ];
 
 interface SidebarProps {
+  collapseContexts?: boolean;
   contexts: Context[];
   activeContextId: number | null;
   onSelectContext: (id: number | null) => void;
@@ -58,6 +59,7 @@ interface SidebarProps {
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
+  collapseContexts = false,
   contexts,
   activeContextId,
   onSelectContext,
@@ -204,7 +206,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Contexts Section */}
-      <div style={styles.contextsContainer}>
+      <details open={!collapseContexts} style={styles.contextsContainer}>
+        <summary hidden={!collapseContexts} style={{ cursor: 'pointer', padding: '12px 0', color: 'var(--text-secondary)', fontSize: '13px' }}>
+          Gestionar contextos
+        </summary>
         <div style={styles.boardsHeader}>
           <h3 style={styles.navLabel}>Contextos</h3>
           <button
@@ -390,7 +395,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </div>
           );
         })()}
-      </div>
+      </details>
 
       {/* Boards Section */}
       <div style={styles.boardsContainer}>
