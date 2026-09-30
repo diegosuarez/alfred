@@ -25,8 +25,8 @@ export function MobileContextSwitch({ contexts, activeContextId, onSelect }: Pro
     const deltaY = event.changedTouches[0].clientY - start.y;
     if (Math.abs(deltaX) < 40 || Math.abs(deltaX) < Math.abs(deltaY) * 1.2) return;
 
-    // A left swipe selects Personal; a right swipe selects Trabajo.
-    const target = contexts[deltaX < 0 ? 1 : 0];
+    // Swipe toward the side where the desired context appears.
+    const target = contexts[deltaX < 0 ? 0 : 1];
     if (!target) return;
     lastSwipeAt.current = Date.now();
     onSelect(target.id);
