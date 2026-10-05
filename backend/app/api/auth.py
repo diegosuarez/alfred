@@ -1,6 +1,6 @@
 import secrets
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from itsdangerous import BadSignature, URLSafeTimedSerializer
@@ -16,6 +16,12 @@ from app.core.security import (
     verify_password,
 )
 from app.core.self_contact import ensure_self_contact
+from app.core.sessions import (
+    access_token_for,
+    issue_login,
+    open_session,
+    set_refresh_cookie,
+)
 from app.database import get_db
 from app.models.google_account import GoogleAccount
 from app.models.user import User
@@ -31,14 +37,20 @@ _STATE_COOKIE_PATH = "/api/auth/google"
 _state_signer = URLSafeTimedSerializer(settings.JWT_SECRET, salt="alfred-oauth-state")
 
 
-def build_oauth_state(user_id: int | None = None, scopes: list[str] | None = None) -> str:
+def build_oauth_state(
+    user_id: int | None = None,
+    scopes: list[str] | None = None,
+    remember: bool = False,
+) -> str:
     """Pack the OAuth state as a signed dict. When user_id is set we treat
     the callback as a connect-to-existing-user flow (Fase 3) instead of a
-    login lookup."""
+    login lookup. `remember` rides along so the callback knows whether
+    to open a remembered session."""
     return _state_signer.dumps({
         "nonce": secrets.token_urlsafe(16),
         "user_id": user_id,
         "scopes": scopes or google_oauth.LOGIN_SCOPES,
+        "remember": remember,
     })
 
 
@@ -94,7 +106,10 @@ async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
 
 @router.post("/login", response_model=Token)
 async def login(
+    request: Request,
+    response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
+    remember: bool = Form(False),
     db: AsyncSession = Depends(get_db)
 ):
     # Verify user credentials
@@ -106,7 +121,7 @@ async def login(
             detail="Incorrect email or password"
         )
 
-    access_token = create_access_token(data={"sub": user.email, "user_id": user.id})
+    access_token = await issue_login(db, user, remember, request, response)
     return {"access_token": access_token, "token_type": "bearer"}
 
 
@@ -184,13 +199,13 @@ def _require_google_configured() -> None:
 
 
 @router.get("/google/login")
-async def google_login() -> RedirectResponse:
+async def google_login(remember: bool = False) -> RedirectResponse:
     """Kick off the Google OAuth2 authorization-code flow for a NEW
     session (anonymous caller). Connecting an additional account to an
     already-logged-in user lives in app.api.google_accounts.
     """
     _require_google_configured()
-    state = build_oauth_state()
+    state = build_oauth_state(remember=remember)
 
     response = RedirectResponse(url=google_oauth.build_authorize_url(state=state))
     response.set_cookie(
@@ -294,8 +309,12 @@ async def google_callback(
     await db.refresh(user)
 
     if link_user_id is None:
-        jwt_token = create_access_token(data={"sub": user.email, "user_id": user.id})
-        redirect = _frontend_redirect(token=jwt_token)
+        if payload.get("remember"):
+            session, refresh_token = await open_session(db, user, request)
+            redirect = _frontend_redirect(token=access_token_for(user, session))
+            set_refresh_cookie(redirect, refresh_token)
+        else:
+            redirect = _frontend_redirect(token=access_token_for(user))
     else:
         # Connect flow: caller already has a session, just go back to settings.
         redirect = RedirectResponse(

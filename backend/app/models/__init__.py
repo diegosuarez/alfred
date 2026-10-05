@@ -14,6 +14,7 @@ from app.models.push_subscription import PushSubscription
 from app.models.fcm_subscription import FCMSubscription
 from app.models.attachment import Attachment
 from app.models.passkey import Passkey
+from app.models.user_session import UserSession
 
 __all__ = [
     "Base",
@@ -34,4 +35,5 @@ __all__ = [
     "FCMSubscription",
     "Attachment",
     "Passkey",
+    "UserSession",
 ]

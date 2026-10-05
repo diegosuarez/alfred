@@ -17,7 +17,7 @@ import time
 from typing import Optional
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -38,7 +38,7 @@ from webauthn.helpers.structs import (
 
 from app.api.deps import get_current_user
 from app.core.config import settings
-from app.core.security import create_access_token
+from app.core.sessions import issue_login
 from app.core.time import utcnow
 from app.database import get_db
 from app.models.passkey import Passkey
@@ -175,6 +175,7 @@ class LoginBeginRequest(BaseModel):
 class LoginFinishRequest(BaseModel):
     state: str  # opaque token issued by /login/begin
     credential: dict
+    remember: bool = False
 
 
 @router.post("/login/begin")
@@ -193,6 +194,8 @@ async def login_begin(_body: LoginBeginRequest):
 @router.post("/login/finish", response_model=Token)
 async def login_finish(
     body: LoginFinishRequest,
+    request: Request,
+    response: Response,
     db: AsyncSession = Depends(get_db),
 ):
     challenge = _pop(f"login:{body.state}")
@@ -245,7 +248,7 @@ async def login_finish(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found"
         )
-    token = create_access_token(data={"sub": user.email, "user_id": user.id})
+    token = await issue_login(db, user, body.remember, request, response)
     return Token(access_token=token, token_type="bearer")
 
 

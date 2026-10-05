@@ -11,6 +11,7 @@ from app.core.time import utcnow
 from app.database import get_db
 from app.models.personal_access_token import PersonalAccessToken
 from app.models.user import User
+from app.models.user_session import UserSession
 from app.schemas.user import TokenData
 
 # Matches the login endpoint URL (absolute path so Swagger's Authorize works)
@@ -86,5 +87,13 @@ async def get_current_user(
     user = result.scalars().first()
     if user is None:
         raise credentials_exception
+
+    # JWTs minted from a remembered session die with it, so revoking a
+    # lost device takes effect immediately rather than at JWT expiry.
+    sid = payload.get("sid")
+    if sid is not None:
+        session = await db.get(UserSession, sid)
+        if session is None or session.user_id != user.id or session.revoked_at is not None:
+            raise credentials_exception
 
     return user

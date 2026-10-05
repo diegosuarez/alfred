@@ -30,7 +30,7 @@ discuss, not a roadmap.
   which Compose would apply implicitly and put deployments back into
   dev mode.
 - **Auth**: email + password (bcrypt + JWT bearer), Google OAuth2 and
-  passkeys (WebAuthn). Registration is closed unless
+  passkeys (WebAuthn), optional "Recuérdame" refresh sessions. Registration is closed unless
   `REGISTRATION_OPEN=true`. A Google-first user has hashed_password
   NULL. Once logged in, a user may connect additional Google accounts
   (personal + work); they drive contact sync and context assignment.
@@ -58,6 +58,7 @@ backend/
       config.py      Settings from env
       security.py    bcrypt hash/verify, JWT encode/decode
       pat.py         PAT generation / hashing
+      sessions.py    Remember-me sessions: issue_login, refresh cookie helpers
       time.py        utcnow() — single source for tz-aware UTC now
       google_oauth.py  Thin Google OAuth2 + People API client (mockable)
       self_contact.py  ensure_self_contact(): the per-user "Yo mismo" contact
@@ -68,6 +69,7 @@ backend/
     api/
       auth.py        register/login, registration-status, Google login/callback/native
       passkeys.py    WebAuthn register/login + list/delete
+      sessions.py    /auth/refresh, /auth/logout, /auth/sessions
       deps.py        get_current_user (JWT or PAT bearer)
       contexts.py    CRUD for Contexts; google_account_id assignment
       google_accounts.py  list, connect (incremental OAuth), delete, sync-contacts
@@ -114,8 +116,9 @@ frontend/src/
     FocusTimer.tsx   Pomodoro modes; floating overlay
     QuickCapture.tsx Alt+Q modal that creates a task anywhere
     Statistics.tsx   KPIs + custom SVG bar chart (no chart lib)
-    GoogleSettings.tsx, ContactsSettings.tsx, TokensSettings.tsx
-                     Settings modals (Google accounts, contacts, PATs)
+    GoogleSettings.tsx, ContactsSettings.tsx, TokensSettings.tsx,
+    SessionsSettings.tsx  Settings modals (Google accounts, contacts, PATs,
+                     remembered sessions)
 
 cli/                 Terminal client (uv project, PAT auth)
 deploy/              deploy.sh + nginx vhost template (host install)
@@ -130,7 +133,7 @@ User 1─* Context               (Trabajo, Personal, Familia, ...)
    Context *─1 GoogleAccount   (optional, multiple contexts may share one)
 User 1─* Contact               (manual or synced from a GoogleAccount)
 User 1─* Tag                   (urgent, blocked, ..., user-scoped)
-User 1─* PersonalAccessToken / Passkey / PushSubscription / FCMSubscription
+User 1─* PersonalAccessToken / Passkey / UserSession / PushSubscription / FCMSubscription
 Context 1─* Board 1─* Column 1─* Task
    Task *─1 Task               (parent_task_id: subtasks, any depth)
    Task *─* Tag                (task_tags)
@@ -189,6 +192,33 @@ monkeypatched.
 VAPID keys come from `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` or are
 generated into `data/vapid_keys.json`. FCM is optional
 (`FCM_SERVICE_ACCOUNT_JSON_PATH`, default under `data/`).
+
+## Sessions and "Recuérdame"
+
+Every login path (password, Google, passkey) goes through
+`core/sessions.issue_login`. Without `remember` it returns a plain
+access JWT (`ACCESS_TOKEN_EXPIRE_MINUTES`, 24 h). With it, it also
+opens a `UserSession` and sets an opaque refresh token in an
+HttpOnly, `SameSite=Lax`, `Path=/api/auth` cookie (`alfred_refresh`).
+Google carries the flag inside the signed OAuth state.
+
+- `POST /auth/refresh` trades the cookie for a new JWT and slides the
+  session's expiry to 90 days from now: a device used at least once
+  every 90 days never logs in again. The cookie value is deliberately
+  not rotated — concurrent tabs/PWA refreshing at once would race
+  each other into a logout.
+- JWTs minted from a session carry `sid`; `get_current_user` rejects
+  them once the session is revoked, so revoking a lost phone is
+  immediate instead of waiting out the JWT.
+- `POST /auth/logout` revokes the cookie's session.
+  `GET/DELETE /auth/sessions` power the **📱 Sesiones** modal.
+- Frontend: `authedFetch` in `services/api.ts` retries once after a
+  shared `refreshSession()` on any 401; `App.tsx` also tries a silent
+  refresh on boot when there is no JWT in localStorage (fresh tab,
+  storage evicted — Safari ITP wipes script storage, not server-set
+  cookies). Use `authedFetch` for any raw fetch to the API.
+- The CLI keeps using PATs; `POST /auth/google/native` doesn't support
+  remember.
 
 ## Personal Access Tokens (PATs)
 

@@ -20,6 +20,7 @@ from app.api.google_accounts import router as google_accounts_router
 from app.api.personal_access_tokens import router as pats_router
 from app.api.push import router as push_router
 from app.api.reminders import router as reminders_router
+from app.api.sessions import router as sessions_router
 from app.api.tags import router as tags_router
 from app.api.tasks import router as tasks_router
 from app.core.time import utcnow
@@ -277,6 +278,7 @@ app.add_middleware(
 
 # Wire up routers
 app.include_router(auth_router, prefix="/api")
+app.include_router(sessions_router, prefix="/api")
 app.include_router(contexts_router, prefix="/api")
 app.include_router(google_accounts_router, prefix="/api")
 app.include_router(contacts_router, prefix="/api")
