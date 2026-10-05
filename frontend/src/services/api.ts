@@ -14,38 +14,77 @@ export const setToken = (newToken: string) => {
 
 export const getToken = () => token;
 
+export interface UserSession {
+  id: number;
+  user_agent: string | null;
+  created_at: string;
+  last_used_at: string;
+  expires_at: string;
+  current: boolean;
+}
+
 /** Fires when the backend rejects our credentials mid-session (JWT
  *  expiry, PAT revoked, etc.). App.tsx subscribes and bounces the user
  *  to the login screen so stale UI doesn't fight invisible 401s. */
 export const UNAUTHORIZED_EVENT = 'alfred:unauthorized';
 
+let refreshing: Promise<boolean> | null = null;
+
+/** Trade the HttpOnly "remember me" cookie for a fresh access token.
+ *  Resolves false when there's no live session (never remembered,
+ *  revoked or expired). Concurrent callers share one request. */
+export const refreshSession = (): Promise<boolean> => {
+  if (!refreshing) {
+    refreshing = fetch('/api/auth/refresh', { method: 'POST', credentials: 'include' })
+      .then(async (r) => {
+        if (!r.ok) return false;
+        setToken((await r.json()).access_token);
+        return true;
+      })
+      .catch(() => false)
+      .finally(() => {
+        refreshing = null;
+      });
+  }
+  return refreshing;
+};
+
+/** fetch() with our Bearer attached. On a 401 it tries one silent
+ *  refresh and replays the request with the new token. */
+export async function authedFetch(url: string, init: RequestInit = {}): Promise<Response> {
+  const send = () => {
+    const headers = new Headers(init.headers || {});
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+    // include credentials so the OAuth state cookie set by /google-accounts/connect
+    // is stored cross-origin and replayed on Google's callback redirect.
+    return fetch(url, { ...init, headers, credentials: 'include' });
+  };
+  const response = await send();
+  if (response.status === 401 && token && (await refreshSession())) {
+    return send();
+  }
+  return response;
+}
+
 async function request(endpoint: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers || {});
-
-  if (token) {
-    headers.set('Authorization', `Bearer ${token}`);
-  }
 
   if (options.body && !(options.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
   }
 
-  const response = await fetch(`/api${endpoint}`, {
-    ...options,
-    headers,
-    // include credentials so the OAuth state cookie set by /google-accounts/connect
-    // is stored cross-origin and replayed on Google's callback redirect.
-    credentials: 'include',
-  });
+  const response = await authedFetch(`/api${endpoint}`, { ...options, headers });
 
-  // Session expiry / revoked token: only treat as "logged out" when the
-  // call carried our Bearer (i.e. we believed we were authenticated).
-  // Login / register endpoints can legitimately 401 on bad credentials
-  // — they handle their own messaging.
+  // Session expiry / revoked token that a refresh couldn't fix: only
+  // treat as "logged out" when the call carried our Bearer (i.e. we
+  // believed we were authenticated). Login endpoints can legitimately
+  // 401 on bad credentials — they handle their own messaging.
+  const isLoginCall =
+    endpoint.startsWith('/auth/') && !endpoint.startsWith('/auth/sessions');
   if (
     response.status === 401 &&
     token &&
-    !endpoint.startsWith('/auth/')
+    !isLoginCall
   ) {
     setToken('');
     window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
@@ -75,10 +114,11 @@ export const api = {
   registrationStatus: (): Promise<{ open: boolean }> =>
     request('/auth/registration-status'),
 
-  login: async (email: string, password: string) => {
+  login: async (email: string, password: string, remember = false) => {
     const formData = new FormData();
     formData.append('username', email);
     formData.append('password', password);
+    formData.append('remember', String(remember));
     const data = await request('/auth/login', {
       method: 'POST',
       body: formData,
@@ -88,8 +128,18 @@ export const api = {
   },
 
   logout: () => {
+    // Revokes this device's remembered session server-side and clears
+    // the cookie. Fire-and-forget: the local logout must not wait on
+    // the network.
+    fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {});
     setToken('');
   },
+
+  // Remembered sessions ("Recuérdame")
+  getSessions: (): Promise<UserSession[]> => request('/auth/sessions'),
+
+  revokeSession: (sessionId: number) =>
+    request(`/auth/sessions/${sessionId}`, { method: 'DELETE' }),
 
   // Contexts
   getContexts: () =>
@@ -393,10 +443,10 @@ export const api = {
   passkeyLoginBegin: () =>
     request('/passkeys/login/begin', { method: 'POST', body: JSON.stringify({}) }),
 
-  passkeyLoginFinish: (state: string, credential: any) =>
+  passkeyLoginFinish: (state: string, credential: any, remember = false) =>
     request('/passkeys/login/finish', {
       method: 'POST',
-      body: JSON.stringify({ state, credential }),
+      body: JSON.stringify({ state, credential, remember }),
     }),
 
   listPasskeys: () => request('/passkeys'),

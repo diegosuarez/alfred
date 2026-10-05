@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 
-import { api, getToken } from '../services/api';
+import { api, authedFetch } from '../services/api';
 import { useAuthedImage } from '../hooks/useAuthedImage';
 
 export interface Attachment {
@@ -67,11 +67,7 @@ const ImageTile: React.FC<{
 /** Download `att` by hitting the authed endpoint as a blob and pushing
  *  a synthetic anchor click. Works for any content type. */
 async function downloadAttachment(att: Attachment): Promise<void> {
-  const token = getToken();
-  const resp = await fetch(att.url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    credentials: 'include',
-  });
+  const resp = await authedFetch(att.url);
   if (!resp.ok) {
     alert('No se pudo descargar el adjunto');
     return;

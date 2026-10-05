@@ -69,7 +69,7 @@ export const registerPasskey = async (label?: string): Promise<{ id: number; lab
 
 /** Sign in with a previously-registered passkey. Resolves to the JWT
  *  the backend mints; caller is responsible for storing it. */
-export const signInWithPasskey = async (): Promise<{ access_token: string }> => {
+export const signInWithPasskey = async (remember = false): Promise<{ access_token: string }> => {
   const options: any = await api.passkeyLoginBegin();
   const state: string = options.state;
 
@@ -100,5 +100,5 @@ export const signInWithPasskey = async (): Promise<{ access_token: string }> => 
     },
     clientExtensionResults: assertion.getClientExtensionResults(),
   };
-  return api.passkeyLoginFinish(state, payload);
+  return api.passkeyLoginFinish(state, payload, remember);
 };

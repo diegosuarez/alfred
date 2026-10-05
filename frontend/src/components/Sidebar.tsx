@@ -47,6 +47,7 @@ interface SidebarProps {
   onDeleteBoard: (id: number) => Promise<void>;
   onOpenSettings: () => void;
   onOpenTokens: () => void;
+  onOpenSessions: () => void;
   onOpenContacts: () => void;
   onLogout: () => void;
   userEmail: string;
@@ -75,6 +76,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onDeleteBoard,
   onOpenSettings,
   onOpenTokens,
+  onOpenSessions,
   onOpenContacts,
   onLogout,
   userEmail,
@@ -634,6 +636,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }}
             >
               🔑 Tokens API
+            </button>
+            <button
+              className="glass-button-secondary"
+              style={styles.settingsBtn}
+              onClick={() => {
+                onOpenSessions();
+                onCloseMobileSidebar?.();
+              }}
+            >
+              📱 Sesiones
             </button>
             <button
               className="glass-button glass-button-danger"

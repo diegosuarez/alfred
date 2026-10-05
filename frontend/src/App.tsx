@@ -7,10 +7,11 @@ import { Statistics } from './components/Statistics';
 import { QuickCapture } from './components/QuickCapture';
 import { GoogleSettings } from './components/GoogleSettings';
 import { TokensSettings } from './components/TokensSettings';
+import { SessionsSettings } from './components/SessionsSettings';
 import { ContactsSettings } from './components/ContactsSettings';
 import { ReminderAlerts, type FiredReminder } from './components/ReminderAlerts';
 import { ensurePushSubscription } from './services/push';
-import { api, getToken, setToken, UNAUTHORIZED_EVENT } from './services/api';
+import { api, getToken, refreshSession, setToken, UNAUTHORIZED_EVENT } from './services/api';
 
 interface Context {
   id: number;
@@ -29,6 +30,9 @@ interface Board {
 
 export const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  // False until we know whether a stored JWT or a remembered session
+  // gets us in, so the login screen doesn't flash on every cold start.
+  const [authChecked, setAuthChecked] = useState(false);
   const [userEmail, setUserEmail] = useState('');
   const [userName, setUserName] = useState<string | null>(null);
   const [userPicture, setUserPicture] = useState<string | null>(null);
@@ -51,6 +55,7 @@ export const App: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   // PAT (Personal Access Tokens) modal
   const [showTokens, setShowTokens] = useState(false);
+  const [showSessions, setShowSessions] = useState(false);
   const [showContacts, setShowContacts] = useState(false);
 
   // Reminder scheduler state
@@ -154,7 +159,19 @@ export const App: React.FC = () => {
     if (token) {
       setIsAuthenticated(true);
       parseUserEmail(token);
+      setAuthChecked(true);
+      return;
     }
+    // No JWT around (fresh tab, cleared storage, iOS evicting it):
+    // a "remember me" cookie can still sign us in silently.
+    refreshSession()
+      .then((ok) => {
+        if (ok) {
+          setIsAuthenticated(true);
+          parseUserEmail(getToken());
+        }
+      })
+      .finally(() => setAuthChecked(true));
   }, []);
 
   useEffect(() => {
@@ -525,6 +542,7 @@ export const App: React.FC = () => {
     setRefreshTrigger((prev) => prev + 1);
   };
 
+  if (!authChecked) return null;
   if (!isAuthenticated) {
     return <Auth onLoginSuccess={handleLoginSuccess} />;
   }
@@ -597,6 +615,7 @@ export const App: React.FC = () => {
         onDeleteBoard={handleDeleteBoard}
         onOpenSettings={() => setShowSettings(true)}
         onOpenTokens={() => setShowTokens(true)}
+        onOpenSessions={() => setShowSessions(true)}
         onOpenContacts={() => setShowContacts(true)}
         onLogout={handleLogout}
         userEmail={userEmail}
@@ -689,6 +708,15 @@ export const App: React.FC = () => {
       )}
 
       {showTokens && <TokensSettings onClose={() => setShowTokens(false)} />}
+      {showSessions && (
+        <SessionsSettings
+          onClose={() => setShowSessions(false)}
+          onCurrentRevoked={() => {
+            setShowSessions(false);
+            handleLogout();
+          }}
+        />
+      )}
 
       {showContacts && (
         <ContactsSettings
