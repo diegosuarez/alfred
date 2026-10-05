@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import { getToken } from '../services/api';
+import { authedFetch } from '../services/api';
 
 // Module-level cache so multiple components asking for the same URL
 // share the same object URL and we don't hammer the backend.
@@ -26,11 +26,7 @@ export function useAuthedImage(url?: string | null): string | undefined {
       return;
     }
     let cancelled = false;
-    const token = getToken();
-    fetch(url, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-      credentials: 'include',
-    })
+    authedFetch(url)
       .then((r) => {
         if (!r.ok) throw new Error(`status ${r.status}`);
         return r.blob();

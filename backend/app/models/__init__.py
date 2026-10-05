@@ -11,6 +11,10 @@ from app.models.personal_access_token import PersonalAccessToken
 from app.models.contact import Contact, task_assignees
 from app.models.reminder import Reminder
 from app.models.push_subscription import PushSubscription
+from app.models.fcm_subscription import FCMSubscription
+from app.models.attachment import Attachment
+from app.models.passkey import Passkey
+from app.models.user_session import UserSession
 
 __all__ = [
     "Base",
@@ -28,4 +32,8 @@ __all__ = [
     "task_assignees",
     "Reminder",
     "PushSubscription",
+    "FCMSubscription",
+    "Attachment",
+    "Passkey",
+    "UserSession",
 ]

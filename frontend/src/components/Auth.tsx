@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { api, setToken } from '../services/api';
 import { signInWithPasskey, supportsWebAuthn } from '../services/webauthn';
 
+const REMEMBER_PREF_KEY = 'alfred_remember_pref';
+
 interface AuthProps {
   onLoginSuccess: () => void;
 }
@@ -17,6 +19,16 @@ export const Auth: React.FC<AuthProps> = ({ onLoginSuccess }) => {
   // precisely so the SPA can hide the "Sign up" UI when self-service
   // registration is closed.
   const [registrationOpen, setRegistrationOpen] = useState<boolean | null>(null);
+  // Applies to every login method. The choice itself is remembered so
+  // the box comes back pre-ticked on the next login from this device.
+  const [remember, setRemember] = useState(
+    () => localStorage.getItem(REMEMBER_PREF_KEY) === '1',
+  );
+
+  const toggleRemember = (value: boolean) => {
+    setRemember(value);
+    localStorage.setItem(REMEMBER_PREF_KEY, value ? '1' : '0');
+  };
 
   useEffect(() => {
     api.registrationStatus()
@@ -45,9 +57,9 @@ export const Auth: React.FC<AuthProps> = ({ onLoginSuccess }) => {
       if (isRegister) {
         await api.register(email, password);
         // Auto-login after registration
-        await api.login(email, password);
+        await api.login(email, password, remember);
       } else {
-        await api.login(email, password);
+        await api.login(email, password, remember);
       }
       onLoginSuccess();
     } catch (err: any) {
@@ -95,6 +107,16 @@ export const Auth: React.FC<AuthProps> = ({ onLoginSuccess }) => {
             />
           </div>
 
+          <label style={styles.rememberRow}>
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={(e) => toggleRemember(e.target.checked)}
+              style={styles.rememberCheckbox}
+            />
+            <span>Recuérdame en este dispositivo</span>
+          </label>
+
           <button type="submit" className="glass-button" disabled={loading} style={styles.submitBtn}>
             {loading ? 'Procesando...' : isRegister ? 'Registrarse' : 'Entrar'}
           </button>
@@ -105,7 +127,7 @@ export const Auth: React.FC<AuthProps> = ({ onLoginSuccess }) => {
         </div>
 
         <a
-          href="/api/auth/google/login"
+          href={`/api/auth/google/login${remember ? '?remember=true' : ''}`}
           style={styles.googleBtn}
           className="glass-button-secondary"
         >
@@ -123,7 +145,7 @@ export const Auth: React.FC<AuthProps> = ({ onLoginSuccess }) => {
               setError('');
               setLoading(true);
               try {
-                const { access_token } = await signInWithPasskey();
+                const { access_token } = await signInWithPasskey(remember);
                 setToken(access_token);
                 onLoginSuccess();
               } catch (err: any) {
@@ -222,6 +244,21 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '0.85rem',
     fontWeight: 500,
     color: 'var(--text-secondary)',
+  },
+  rememberRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    fontSize: '0.9rem',
+    color: 'var(--text-secondary)',
+    cursor: 'pointer',
+    userSelect: 'none',
+  },
+  rememberCheckbox: {
+    width: '18px',
+    height: '18px',
+    accentColor: 'var(--accent-primary)',
+    cursor: 'pointer',
   },
   submitBtn: {
     marginTop: '10px',
