@@ -1,8 +1,13 @@
+from datetime import datetime
+
+import httpx
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select, update
 
 from app.core import google_oauth
 from app.core.config import settings
+from app.models.google_account import GoogleAccount
 
 
 @pytest.fixture
@@ -372,3 +377,82 @@ async def test_sync_rejects_foreign_account(
         f"/api/google-accounts/{account_id}/sync-contacts", headers=other
     )
     assert resp.status_code == 404
+
+
+def _google_error(status_code: int, error: str) -> httpx.HTTPStatusError:
+    request = httpx.Request("POST", google_oauth.TOKEN_URL)
+    response = httpx.Response(status_code, json={"error": error}, request=request)
+    return httpx.HTTPStatusError(error, request=request, response=response)
+
+
+async def _expire_access_token(db_engine, account_id: int) -> None:
+    async with db_engine.begin() as conn:
+        await conn.execute(
+            update(GoogleAccount)
+            .where(GoogleAccount.id == account_id)
+            .values(expires_at=datetime(2000, 1, 1))
+        )
+
+
+async def test_sync_with_dead_refresh_token_asks_to_reconnect(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    google_creds: None,
+    mock_login: dict,
+    monkeypatch: pytest.MonkeyPatch,
+    db_engine,
+) -> None:
+    account_id = await _connect_account_with_contacts_scope(client, auth_headers)
+    await _expire_access_token(db_engine, account_id)
+    calls = 0
+
+    async def fake_refresh(refresh_token: str) -> dict:
+        nonlocal calls
+        calls += 1
+        raise _google_error(400, "invalid_grant")
+
+    monkeypatch.setattr(google_oauth, "refresh_access_token", fake_refresh)
+
+    resp = await client.post(
+        f"/api/google-accounts/{account_id}/sync-contacts", headers=auth_headers
+    )
+    # 409, never 401: the SPA would treat a 401 as an expired Alfred session.
+    assert resp.status_code == 409
+    assert "Reconnect" in resp.json()["detail"]
+
+    # The dead token was dropped, so the retry fails fast without Google.
+    resp = await client.post(
+        f"/api/google-accounts/{account_id}/sync-contacts", headers=auth_headers
+    )
+    assert resp.status_code == 409
+    assert calls == 1
+
+
+async def test_sync_keeps_refresh_token_on_other_refresh_errors(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    google_creds: None,
+    mock_login: dict,
+    monkeypatch: pytest.MonkeyPatch,
+    db_engine,
+) -> None:
+    account_id = await _connect_account_with_contacts_scope(client, auth_headers)
+    await _expire_access_token(db_engine, account_id)
+
+    async def fake_refresh(refresh_token: str) -> dict:
+        raise _google_error(401, "invalid_client")
+
+    monkeypatch.setattr(google_oauth, "refresh_access_token", fake_refresh)
+
+    resp = await client.post(
+        f"/api/google-accounts/{account_id}/sync-contacts", headers=auth_headers
+    )
+    assert resp.status_code == 409
+    async with db_engine.connect() as conn:
+        refresh_token = (
+            await conn.execute(
+                select(GoogleAccount.refresh_token).where(GoogleAccount.id == account_id)
+            )
+        ).scalar_one()
+    # A misconfigured client isn't the token's fault; keep it.
+    assert refresh_token == "fresh-refresh"

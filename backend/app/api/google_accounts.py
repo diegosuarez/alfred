@@ -33,6 +33,49 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/google-accounts", tags=["google-accounts"])
 
 
+def _reconnect_required() -> HTTPException:
+    # 409, not 401: the SPA reads any 401 as "your Alfred session
+    # expired" and would log the user out over a Google-side problem.
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="Google rejected the saved credentials. Reconnect the account.",
+    )
+
+
+async def _refresh_access_token(db: AsyncSession, account: GoogleAccount) -> None:
+    """Swap the account's refresh token for a new access token, in place."""
+    if not account.refresh_token:
+        raise _reconnect_required()
+    try:
+        payload = await google_oauth.refresh_access_token(account.refresh_token)
+    except httpx.HTTPStatusError as exc:
+        log.warning(
+            "Google token refresh failed for account %s: %s %s",
+            account.id,
+            exc.response.status_code,
+            exc.response.text[:300],
+        )
+        if _is_invalid_grant(exc.response):
+            # Revoked, expired (Google caps refresh tokens at 7 days
+            # while the OAuth app is in "Testing") or superseded. It will
+            # never work again; drop it so later calls fail fast.
+            account.refresh_token = None
+            await db.commit()
+        raise _reconnect_required()
+    account.access_token = payload.get("access_token", account.access_token)
+    if payload.get("refresh_token"):
+        account.refresh_token = payload["refresh_token"]
+    account.expires_at = google_oauth.compute_expires_at(payload.get("expires_in"))
+    await db.commit()
+
+
+def _is_invalid_grant(response: httpx.Response) -> bool:
+    try:
+        return response.json().get("error") == "invalid_grant"
+    except ValueError:
+        return False
+
+
 async def _valid_access_token(db: AsyncSession, account: GoogleAccount) -> str:
     """Return a non-expired access token for `account`, refreshing via
     refresh_token if needed and persisting the new token."""
@@ -41,17 +84,7 @@ async def _valid_access_token(db: AsyncSession, account: GoogleAccount) -> str:
         and account.expires_at < utcnow().replace(tzinfo=None)
     )
     if expired:
-        if not account.refresh_token:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Google access expired and no refresh token is available",
-            )
-        payload = await google_oauth.refresh_access_token(account.refresh_token)
-        account.access_token = payload.get("access_token", account.access_token)
-        if payload.get("refresh_token"):
-            account.refresh_token = payload["refresh_token"]
-        account.expires_at = google_oauth.compute_expires_at(payload.get("expires_in"))
-        await db.commit()
+        await _refresh_access_token(db, account)
     return account.access_token
 
 
@@ -209,19 +242,7 @@ async def sync_google_contacts(
         # If the token rotted out from under us between expires_at and
         # now, try a refresh + retry once.
         if exc.response.status_code in (401, 403) and account.refresh_token:
-            try:
-                payload = await google_oauth.refresh_access_token(account.refresh_token)
-            except httpx.HTTPStatusError as refresh_exc:
-                log.warning("Refresh failed for account %s: %s", account.id, refresh_exc)
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Google rejected the saved credentials. Reconnect the account.",
-                )
-            account.access_token = payload.get("access_token", account.access_token)
-            if payload.get("refresh_token"):
-                account.refresh_token = payload["refresh_token"]
-            account.expires_at = google_oauth.compute_expires_at(payload.get("expires_in"))
-            await db.commit()
+            await _refresh_access_token(db, account)
             try:
                 connections = await google_oauth.fetch_google_contacts(account.access_token)
             except httpx.HTTPStatusError as retry_exc:
