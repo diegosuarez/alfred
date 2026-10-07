@@ -1,4 +1,6 @@
 import os
+from sqlalchemy import event
+from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy.orm import declarative_base
 from app.core.config import settings
@@ -17,6 +19,19 @@ if settings.DATABASE_URL.startswith("sqlite"):
                 os.makedirs(db_dir, exist_ok=True)
     except Exception as e:
         print(f"Error creating SQLite directory: {e}")
+
+
+@event.listens_for(Engine, "connect")
+def _enable_sqlite_foreign_keys(dbapi_connection, _record) -> None:
+    """SQLite ignores foreign keys (and with them every ON DELETE
+    clause) unless each connection opts in. Listening on the Engine
+    class covers every engine, the test ones included."""
+    if "sqlite" not in type(dbapi_connection).__module__:
+        return
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
+
 
 # Create async engine
 engine = create_async_engine(

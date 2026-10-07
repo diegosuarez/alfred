@@ -49,6 +49,9 @@ def do_run_migrations(connection: Connection) -> None:
 async def run_async_migrations() -> None:
     engine = create_async_engine(settings.DATABASE_URL)
     async with engine.connect() as connection:
+        # Same as app.core.migrations: table rebuilds must not cascade.
+        await connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+        await connection.commit()
         await connection.run_sync(do_run_migrations)
     await engine.dispose()
 

@@ -288,6 +288,14 @@ systemd.
   drop/re-create pairs. Check `PRAGMA foreign_key_list(<table>)` and
   drop them from the revision.
 
+- Foreign keys are enforced: `database.py` turns on
+  `PRAGMA foreign_keys` for every SQLite connection (test engines
+  included), so the `ON DELETE` clauses actually fire.
+  `run_migrations()` and `env.py` switch them off while migrating,
+  because a batch table rebuild drops the old table and would cascade
+  into its children. Before 2026-10 they were never on; `0004` cleaned
+  up the orphans that left behind.
+
 `_backfill_legacy_boards` and `_backfill_self_contacts` in `main.py`
 are idempotent data backfills that still run on every boot.
 

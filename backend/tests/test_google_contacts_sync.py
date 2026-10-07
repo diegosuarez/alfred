@@ -456,3 +456,58 @@ async def test_sync_keeps_refresh_token_on_other_refresh_errors(
         ).scalar_one()
     # A misconfigured client isn't the token's fault; keep it.
     assert refresh_token == "fresh-refresh"
+
+
+async def test_reconnecting_account_keeps_task_assignees(
+    client: AsyncClient,
+    auth_headers: dict[str, str],
+    google_creds: None,
+    mock_login: dict,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: with foreign keys unenforced, disconnecting left the
+    contacts bound to the deleted account, so the resync after
+    reconnecting created duplicates and tasks kept the stale rows."""
+
+    async def fake_fetch(access_token: str) -> list[dict]:
+        return [
+            {
+                "resourceName": "people/c1",
+                "names": [{"displayName": "Ada Lovelace"}],
+                "emailAddresses": [{"value": "ada@example.com"}],
+            }
+        ]
+
+    monkeypatch.setattr(google_oauth, "fetch_google_contacts", fake_fetch)
+
+    old_id = await _connect_account_with_contacts_scope(client, auth_headers)
+    await client.post(f"/api/google-accounts/{old_id}/sync-contacts", headers=auth_headers)
+    contacts = (await client.get("/api/contacts", headers=auth_headers)).json()
+    ada = next(c for c in contacts if c["name"] == "Ada Lovelace")
+
+    board = (await client.post("/api/boards", json={"name": "B"}, headers=auth_headers)).json()
+    detail = (await client.get(f"/api/boards/{board['id']}", headers=auth_headers)).json()
+    task = (
+        await client.post(
+            f"/api/columns/{detail['columns'][0]['id']}/tasks",
+            json={"title": "T", "assignee_ids": [ada["id"]], "requester_id": ada["id"]},
+            headers=auth_headers,
+        )
+    ).json()
+
+    resp = await client.delete(f"/api/google-accounts/{old_id}", headers=auth_headers)
+    assert resp.status_code == 204
+    new_id = await _connect_account_with_contacts_scope(client, auth_headers)
+    resp = await client.post(
+        f"/api/google-accounts/{new_id}/sync-contacts", headers=auth_headers
+    )
+    assert resp.json() == {"added": 0, "updated": 1, "total": 1}
+
+    contacts = (await client.get("/api/contacts", headers=auth_headers)).json()
+    assert [c["id"] for c in contacts if c["name"] == "Ada Lovelace"] == [ada["id"]]
+    detail = (await client.get(f"/api/boards/{board['id']}", headers=auth_headers)).json()
+    stored = next(
+        t for col in detail["columns"] for t in col["tasks"] if t["id"] == task["id"]
+    )
+    assert [a["id"] for a in stored["assignees"]] == [ada["id"]]
+    assert stored["requester"]["id"] == ada["id"]
